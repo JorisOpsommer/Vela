@@ -2,7 +2,7 @@
 // holds the API keys and picks the upstream source per symbol. One websocket carries
 // every live subscription.
 import type { DataProvider, ProviderInfo, SymbolDescriptor, SymbolInfo, BarRange, OHLCV } from '../../../src';
-import { api } from './api';
+import { ApiError, api } from './api';
 
 type Unsubscribe = () => void;
 
@@ -61,7 +61,21 @@ class StreamClient {
     }
 }
 
+/** The server could not load bars because the sources for them are over their rate limit. */
+export interface ProviderLimitEvent {
+    symbol: string;
+    timeframe: string;
+    providers: string[];
+    retryAfterSec: number;
+}
+
+export interface ServerProviderOptions {
+    onProviderLimit?: (e: ProviderLimitEvent) => void;
+}
+
 export class ServerProvider implements DataProvider {
+    constructor(private readonly opts: ServerProviderOptions = {}) {}
+
     private readonly stream = new StreamClient();
     private symbolsPromise: Promise<SymbolDescriptor[]> | null = null;
     private readonly infoCache = new Map<string, Promise<SymbolInfo | undefined>>();
@@ -82,8 +96,17 @@ export class ServerProvider implements DataProvider {
         if (range.to != null) q.set('to', String(Math.floor(range.to)));
         if (range.limit != null) q.set('limit', String(range.limit));
         if (range.session) q.set('session', range.session);
-        const r = await api<{ bars: OHLCV[] }>(`/api/bars?${q}`);
-        return r.bars;
+        try {
+            const r = await api<{ bars: OHLCV[] }>(`/api/bars?${q}`);
+            return r.bars;
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 429 && err.body.code === 'provider_limit') {
+                const providers = Array.isArray(err.body.providers) ? err.body.providers.filter((p): p is string => typeof p === 'string') : [];
+                const retryAfterSec = typeof err.body.retryAfterSec === 'number' ? err.body.retryAfterSec : 60;
+                this.opts.onProviderLimit?.({ symbol: ticker, timeframe, providers, retryAfterSec });
+            }
+            throw err;
+        }
     }
 
     listSymbols(): Promise<SymbolDescriptor[]> {

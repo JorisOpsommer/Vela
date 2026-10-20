@@ -37,6 +37,7 @@ function fakeBridge(id: 'yahoo' | 'energycharts', calls: string[]): Bridge {
         async getBars(ticker): Promise<OHLCV[]> {
             calls.push(`${id}:${ticker}`);
             if (ticker === 'BROKEN') throw new UpstreamError('down', 503);
+            if (ticker === 'LIMIT') throw new UpstreamError('rate budget exhausted', 429, id === 'yahoo' ? 20_000 : 45_000);
             return [
                 { time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
                 { time: 2, open: 1.5, high: 2.5, low: 1, close: 2, volume: 11 },
@@ -62,7 +63,11 @@ beforeAll(async () => {
             groups: [{ name: 'Test', symbols: ['IDX'] }],
             instruments: {
                 IDX: { name: 'Index', class: 'index', prefix: 'INDEX', yahoo: 'IDX', currency: 'USD', timezone: 'Etc/UTC', session: '24x7' },
+                LATE: { name: 'Late', class: 'futures', prefix: 'NYMEX', yahoo: 'LATE', currency: 'USD', timezone: 'Etc/UTC', session: '24x7', delayMinutes: 10 },
                 FLAKY: { name: 'Flaky', class: 'index', prefix: 'INDEX', yahoo: 'BROKEN', energycharts: 'OK', currency: 'USD', timezone: 'Etc/UTC', session: '24x7' },
+                CAPPED: { name: 'Capped', class: 'index', prefix: 'INDEX', yahoo: 'LIMIT', energycharts: 'LIMIT', currency: 'USD', timezone: 'Etc/UTC', session: '24x7' },
+                RESCUED: { name: 'Rescued', class: 'index', prefix: 'INDEX', yahoo: 'LIMIT', energycharts: 'OK', currency: 'USD', timezone: 'Etc/UTC', session: '24x7' },
+                MIXED: { name: 'Mixed', class: 'index', prefix: 'INDEX', yahoo: 'LIMIT', energycharts: 'BROKEN', currency: 'USD', timezone: 'Etc/UTC', session: '24x7' },
             },
         },
         { alpaca: false, finnhub: false },
@@ -146,6 +151,30 @@ describe('signed-in API', () => {
         expect(fb.json().source).toBe('energycharts');
         expect(calls).toContain('yahoo:BROKEN');
         expect((await app.inject({ url: '/api/bars?symbol=NOPE!!&tf=D', headers: { cookie } })).statusCode).toBe(404);
+    });
+
+    it('marks delayed symbols in the symbol list, and only those', async () => {
+        const { cookie } = await login('alice');
+        const rows = (await app.inject({ url: '/api/symbols', headers: { cookie } })).json() as Array<{ ticker: string; delayMinutes?: number }>;
+        expect(rows.find((r) => r.ticker === 'LATE')?.delayMinutes).toBe(10);
+        expect(rows.find((r) => r.ticker === 'IDX')).not.toHaveProperty('delayMinutes');
+    });
+
+    it('reports a rate limit that stopped every source, naming the sources and the wait', async () => {
+        const { cookie } = await login('alice');
+        const capped = await app.inject({ url: '/api/bars?symbol=INDEX:CAPPED&tf=60', headers: { cookie } });
+        expect(capped.statusCode).toBe(429);
+        expect(capped.json()).toMatchObject({ code: 'provider_limit', retryAfterSec: 20 });
+        expect([...capped.json().providers].sort()).toEqual(['energycharts', 'yahoo']);
+        expect(capped.headers['retry-after']).toBe('20');
+        // A limited source that another one covers is not the user's problem.
+        const rescued = await app.inject({ url: '/api/bars?symbol=INDEX:RESCUED&tf=60', headers: { cookie } });
+        expect(rescued.statusCode).toBe(200);
+        expect(rescued.json().source).toBe('energycharts');
+        // A plain outage alongside the limit is reported as an outage, not blamed on the limit.
+        const mixed = await app.inject({ url: '/api/bars?symbol=INDEX:MIXED&tf=60', headers: { cookie } });
+        expect(mixed.statusCode).toBe(502);
+        expect(mixed.json().code).toBeUndefined();
     });
 
     it('computes quote change from the previous close', async () => {

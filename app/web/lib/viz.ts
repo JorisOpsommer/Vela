@@ -267,82 +267,127 @@ export function donut(host: HTMLElement, items: Array<{ label: string; value: nu
     host.append(wrap);
 }
 
-/** Horizontal bars; one series, so one hue family. */
+/**
+ * Horizontal bars; one series, so one hue family. Called again on the same host it
+ * updates in place: rows are matched by label, so a refresh slides the bars to their new
+ * length instead of replaying the entrance animation.
+ */
 export function barList(host: HTMLElement, rows: Array<{ label: string; value: number; display?: string; title?: string; lead?: HTMLElement }>, opts: { fill?: string } = {}): void {
-    host.replaceChildren();
     if (rows.length === 0) {
-        host.append(h('div', 'empty', 'No data yet'));
+        host.replaceChildren(h('div', 'empty', 'No data yet'));
         return;
     }
+    let box = host.querySelector<HTMLElement>(':scope > .bars');
+    if (!box) {
+        box = h('div', 'bars');
+        host.replaceChildren(box);
+    }
+    const existing = new Map<string, HTMLElement>();
+    for (const row of box.querySelectorAll<HTMLElement>(':scope > .bar-row')) existing.set(row.dataset.key ?? '', row);
     const max = Math.max(...rows.map((r) => r.value), 1);
-    const box = h('div', 'bars');
-    rows.forEach((r, i) => {
-        const row = h('div', 'bar-row');
-        const name = h('span', 'name');
-        if (r.lead) name.append(r.lead);
-        name.append(document.createTextNode(r.label));
-        if (r.title) name.title = r.title;
-        const track = h('span', 'track');
-        const fill = h('span', 'fill');
+    const ordered = rows.map((r, i) => {
+        let row = existing.get(r.label);
+        existing.delete(r.label);
+        // Already on screen: drop the entrance animation, which re-inserting the row to
+        // re-rank it would otherwise replay. The width change still glides.
+        if (row) (row.querySelector('.fill') as HTMLElement).style.animation = 'none';
+        if (!row) {
+            row = h('div', 'bar-row');
+            row.dataset.key = r.label;
+            const track = h('span', 'track');
+            const fill = h('span', 'fill');
+            fill.style.animationDelay = `${i * 40}ms`;
+            track.append(fill);
+            row.append(h('span', 'name'), track, h('span', 'num'));
+        }
+        const [name, track, num] = Array.from(row.children) as [HTMLElement, HTMLElement, HTMLElement];
+        name.replaceChildren(...(r.lead ? [r.lead] : []), document.createTextNode(r.label));
+        name.title = r.title ?? '';
+        const fill = track.firstElementChild as HTMLElement;
         fill.style.width = `${Math.max(2, (r.value / max) * 100)}%`;
-        fill.style.animationDelay = `${i * 40}ms`;
         if (opts.fill) fill.style.background = opts.fill;
-        track.append(fill);
-        row.append(name, track, h('span', 'num', r.display ?? fmt(r.value)));
-        box.append(row);
+        num.textContent = r.display ?? fmt(r.value);
+        return row;
     });
-    host.append(box);
+    for (const gone of existing.values()) gone.remove();
+    // Re-insert only the rows whose rank changed.
+    ordered.forEach((row, i) => {
+        if (box.children[i] !== row) box.insertBefore(row, box.children[i] ?? null);
+    });
 }
 
-/** Semicircle gauge; `fraction` in [0, 1]. Colour steps to status at 70% / 90%. */
-export function gauge(fraction: number | null, label: string): SVGSVGElement {
+export interface Gauge {
+    el: SVGSVGElement;
+    /** `fraction` in [0, 1], or null for "no limit known". The arc glides to it. */
+    set(fraction: number | null): void;
+}
+
+/** Semicircle gauge. Colour steps to status at 70% / 90%. Update it with `set`. */
+export function gauge(label: string): Gauge {
     const W = 140;
     const H = 84;
     const R = 56;
     const cx = W / 2;
     const cy = 72;
-    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img' });
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', class: 'gauge' });
     const id = `g${Math.random().toString(36).slice(2, 8)}`;
     const defs = svgEl('defs');
     const lg = svgEl('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 0 });
-    const f = fraction ?? 0;
-    const [c0, c1] = f >= 0.9 ? ['#ff4f8b', '#d03b3b'] : f >= 0.7 ? ['#ffc44d', '#ff8a4c'] : ['#1fd1a5', '#2f8bff'];
-    lg.append(svgEl('stop', { offset: 0, 'stop-color': c0 }), svgEl('stop', { offset: 1, 'stop-color': c1 }));
+    const stop0 = svgEl('stop', { offset: 0 });
+    const stop1 = svgEl('stop', { offset: 1 });
+    lg.append(stop0, stop1);
     defs.append(lg);
     svg.append(defs);
-    const arc = (frac: number) => {
-        const a = Math.PI * (1 - Math.min(Math.max(frac, 0), 1));
-        return `M${cx - R},${cy} A${R},${R} 0 0 1 ${cx + R * Math.cos(a)},${cy - R * Math.sin(a)}`;
-    };
-    svg.append(svgEl('path', { d: arc(1), fill: 'none', stroke: 'rgba(255,255,255,0.08)', 'stroke-width': 12, 'stroke-linecap': 'round' }));
-    if (fraction != null && fraction > 0.002) svg.append(svgEl('path', { d: arc(fraction), fill: 'none', stroke: `url(#${id})`, 'stroke-width': 12, 'stroke-linecap': 'round' }));
+    const d = `M${cx - R},${cy} A${R},${R} 0 0 1 ${cx + R},${cy}`;
+    svg.append(svgEl('path', { d, fill: 'none', stroke: 'rgba(255,255,255,0.08)', 'stroke-width': 12, 'stroke-linecap': 'round' }));
+    // The value arc is the full track drawn with a dash of the right length, so a new
+    // value is a CSS transition of the dash rather than a new path.
+    const value = svgEl('path', { d, fill: 'none', stroke: `url(#${id})`, 'stroke-width': 12, 'stroke-linecap': 'round', pathLength: 100, class: 'gauge-value' });
+    svg.append(value);
     const t = svgEl('text', { x: cx, y: cy - 8, 'text-anchor': 'middle', fill: 'var(--text-primary)', 'font-size': 20, 'font-weight': 700 });
-    t.textContent = fraction == null ? '—' : `${Math.round(fraction * 100)}%`;
     const s = svgEl('text', { x: cx, y: cy + 8, 'text-anchor': 'middle', fill: 'var(--text-muted)', 'font-size': 10 });
     s.textContent = label;
     svg.append(t, s);
-    return svg;
+    const set = (fraction: number | null) => {
+        const f = Math.min(Math.max(fraction ?? 0, 0), 1);
+        const [c0, c1] = f >= 0.9 ? ['#ff4f8b', '#d03b3b'] : f >= 0.7 ? ['#ffc44d', '#ff8a4c'] : ['#1fd1a5', '#2f8bff'];
+        stop0.setAttribute('stop-color', c0);
+        stop1.setAttribute('stop-color', c1);
+        // A round cap draws a dot even for a zero-length dash: hide it below 0.2%.
+        value.style.strokeDasharray = `${f * 100} 100`;
+        value.style.opacity = fraction != null && f > 0.002 ? '1' : '0';
+        t.textContent = fraction == null ? '—' : `${Math.round(f * 100)}%`;
+    };
+    set(null);
+    return { el: svg, set };
 }
 
-/** Tiny line, no axes — a trend glance inside a card. */
-export function sparkline(values: number[], color: string, height = 34): SVGSVGElement {
+export interface Sparkline {
+    el: SVGSVGElement;
+    set(values: number[]): void;
+}
+
+/** Tiny line, no axes — a trend glance inside a card. Update it with `set`. */
+export function sparkline(color: string, height = 34): Sparkline {
     const W = 200;
     const svg = svgEl('svg', { viewBox: `0 0 ${W} ${height}`, preserveAspectRatio: 'none', height, role: 'img' });
     svg.style.width = '100%';
-    const max = Math.max(...values, 1);
-    const n = values.length;
-    const pts = values.map((v, i) => `${n <= 1 ? 0 : (i / (n - 1)) * W},${height - 2 - (v / max) * (height - 6)}`);
     const id = `s${Math.random().toString(36).slice(2, 8)}`;
     const defs = svgEl('defs');
     const lg = svgEl('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 });
     lg.append(svgEl('stop', { offset: 0, 'stop-color': color, 'stop-opacity': 0.45 }), svgEl('stop', { offset: 1, 'stop-color': color, 'stop-opacity': 0 }));
     defs.append(lg);
-    svg.append(defs);
-    if (n > 1) {
-        svg.append(svgEl('path', { d: `M0,${height} L${pts.join(' L')} L${W},${height} Z`, fill: `url(#${id})` }));
-        svg.append(svgEl('path', { d: `M${pts.join(' L')}`, fill: 'none', stroke: color, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }));
-    }
-    return svg;
+    const area = svgEl('path', { fill: `url(#${id})` });
+    const line = svgEl('path', { fill: 'none', stroke: color, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' });
+    svg.append(defs, area, line);
+    const set = (values: number[]) => {
+        const max = Math.max(...values, 1);
+        const n = values.length;
+        const pts = values.map((v, i) => `${n <= 1 ? 0 : (i / (n - 1)) * W},${height - 2 - (v / max) * (height - 6)}`);
+        area.setAttribute('d', n > 1 ? `M0,${height} L${pts.join(' L')} L${W},${height} Z` : '');
+        line.setAttribute('d', n > 1 ? `M${pts.join(' L')}` : '');
+    };
+    return { el: svg, set };
 }
 
 /** Weekday × hour grid on a single-hue sequential scale. */

@@ -9,6 +9,8 @@ import { ServerProvider } from './lib/server-provider';
 import { watchlistPanel } from './watchlist';
 import { defaultWorkspaceState } from './defaults';
 import { startTracker } from './lib/tracker';
+import { showProviderLimit } from './lib/toast';
+import { startDataNotices } from './lib/data-notices';
 import './app.css';
 
 const WORKSPACE_KEY = 'workspace';
@@ -31,7 +33,7 @@ async function main(): Promise<void> {
     // nothing is written until the user changes something.
     if (storage.wasEmpty(WORKSPACE_KEY)) storage.seed(WORKSPACE_KEY, JSON.stringify(defaultWorkspaceState(timezone)));
 
-    const provider = new ServerProvider();
+    const provider = new ServerProvider({ onProviderLimit: showProviderLimit });
     registerSidePanel(watchlistPanel(storage, provider));
     registerWidgetAction({ id: 'app-insights', target: 'topbar', label: 'My insights', icon: 'app-insights', iconOnly: true, order: 880, run: () => (location.href = '/insights') });
     registerWidgetAction({ id: 'app-stats', target: 'topbar', label: 'Data providers', icon: 'app-stats', iconOnly: true, order: 890, run: () => (location.href = '/stats') });
@@ -59,6 +61,7 @@ async function main(): Promise<void> {
         history.replaceState(null, '', '/');
     }
     startTracker(ws);
+    void startDataNotices(ws, provider);
     (window as unknown as { vela?: unknown }).vela = ws;
 }
 

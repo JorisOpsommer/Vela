@@ -46,7 +46,7 @@ export class TokenBucket {
         const waitMs = ((this.queue.length + 1 - this.tokens) / this.perMinute) * 60_000;
         if (waitMs > maxWaitMs) {
             this.rejected += 1;
-            return Promise.reject(new UpstreamError('rate budget exhausted', 429));
+            return Promise.reject(new UpstreamError('rate budget exhausted', 429, Math.ceil(waitMs - maxWaitMs)));
         }
         this.waits += 1;
         return new Promise((resolve) => {
@@ -185,7 +185,8 @@ export async function fetchJson<T>(url: string, opts: FetchOptions = {}): Promis
         }
         if (!res.ok) {
             const body = await res.text().catch(() => '');
-            throw new UpstreamError(`HTTP ${res.status}: ${body.slice(0, 200)}`, res.status);
+            const ra = Number(res.headers.get('retry-after'));
+            throw new UpstreamError(`HTTP ${res.status}: ${body.slice(0, 200)}`, res.status, res.status === 429 && Number.isFinite(ra) && ra > 0 ? ra * 1000 : undefined);
         }
         return (await res.json()) as T;
     }

@@ -114,8 +114,8 @@ an authenticator app on the same page.
 - **TLS at your proxy.** The app speaks plain HTTP; keep the port reachable only by your
   proxy (a firewall rule on the LXC, or no port forward on your router).
 - **Accounts.** Passwords are hashed with Argon2id. Sessions are random 256-bit tokens, stored
-  only as hashes, in `HttpOnly`, `SameSite=Lax` cookies that are also `Secure` whenever the request came over HTTPS. A session ends after 14 days
-  without use; activity keeps extending it.
+  only as hashes, in `HttpOnly`, `SameSite=Lax` cookies that are also `Secure` whenever the request came over HTTPS. A session ends after 60 days
+  without use (`SESSION_TTL_DAYS`); activity keeps extending it.
   Optional TOTP two-factor; its secrets are encrypted at rest. There is no public sign-up.
 - **Brute force.** Failed sign-ins are limited per client IP and per username, with growing
   lockouts. Forwarded client-IP headers are honoured only from private-network peers (your
@@ -174,4 +174,10 @@ cd app && npm run typecheck && npm test && npm run build
 
 The chart keeps Vela's attribution mark on, as the Apache-2.0 [NOTICE](NOTICE) requires.
 Belgian power prices are © Bundesnetzagentur | SMARD.de via Energy-Charts.info (Fraunhofer
-ISE), CC BY 4.0.
+ISE), CC BY 4.0. The chart credits the source in the top bar whenever a power price is open,
+and the data providers page lists it too.
+
+Some symbols come from a feed that runs behind the market (for example 10 minutes for
+NYMEX futures, 15 for the VIX). Their chart shows **Delayed N min** in the top bar. Set
+`delayMinutes` per instrument in `app/config/tickers.json`; US stocks and crypto are real
+time and need none.

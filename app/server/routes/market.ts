@@ -2,7 +2,7 @@
 // the server and the upstream quotas are spent only by signed-in users.
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../app';
-import { UpstreamError, type CatalogEntry } from '../market/types';
+import { ProviderLimitError, UpstreamError, type CatalogEntry } from '../market/types';
 import { sameOrigin } from '../security';
 import { ENERGY_ATTRIBUTION } from '../market/bridges/energycharts';
 import { ledgerCryptoIconUrl } from '../../../src/data/symbol-base';
@@ -49,11 +49,12 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
     let symbolsJson: { body: string; etag: string; at: number } | null = null;
     app.get('/api/symbols', async (req, reply) => {
         if (!symbolsJson || Date.now() - symbolsJson.at > 3_600_000) {
-            const rows = market.catalog.all().map((e) => ({ ticker: e.symbol, description: e.name, type: e.class, prefix: e.prefix }));
+            const rows = market.catalog.all().map((e) => ({ ticker: e.symbol, description: e.name, type: e.class, prefix: e.prefix, ...(e.delayMinutes ? { delayMinutes: e.delayMinutes } : {}) }));
             const body = JSON.stringify(rows);
             symbolsJson = { body, etag: `"s${rows.length}-${body.length}"`, at: Date.now() };
         }
-        reply.header('ETag', symbolsJson.etag).header('Cache-Control', 'private, max-age=3600');
+        // Revalidate every load (a 304 when unchanged), so an update reaches browsers at once.
+        reply.header('ETag', symbolsJson.etag).header('Cache-Control', 'private, no-cache');
         if (req.headers['if-none-match'] === symbolsJson.etag) return reply.code(304).send();
         return reply.type('application/json').send(symbolsJson.body);
     });
@@ -79,8 +80,12 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
             const { bars, source } = await market.getBars(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
             return { bars, source };
         } catch (err) {
-            const status = err instanceof UpstreamError && err.status && err.status < 500 && err.status !== 429 ? err.status : 502;
             req.log.warn({ symbol: q.symbol, tf: q.tf, err: (err as Error).message }, 'bars failed');
+            if (err instanceof ProviderLimitError) {
+                const retryAfterSec = Math.max(1, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
+                return reply.code(429).header('Retry-After', String(retryAfterSec)).send({ error: err.message, code: 'provider_limit', providers: err.providers, retryAfterSec });
+            }
+            const status = err instanceof UpstreamError && err.status && err.status < 500 && err.status !== 429 ? err.status : 502;
             return reply.code(status).send({ error: (err as Error).message });
         }
     });

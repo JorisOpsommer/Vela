@@ -2,7 +2,7 @@
 // source in order (skipping bridges that keep failing), merges real-time trades into
 // quotes, and runs the live hub that streams forming bars to browsers.
 import type { Bridge, BridgeId, BarRequest, CatalogEntry, OHLCV, Quote } from './types';
-import { UpstreamError } from './types';
+import { ProviderLimitError, UpstreamError, rateLimitWait } from './types';
 import type { Catalog } from './catalog';
 import { bucketStart, localDate, localTimeOfDay, parseTimeframe, zonedWallTime, type Timeframe } from './timeframes';
 import type { AlpacaBridge } from './bridges/alpaca';
@@ -79,6 +79,9 @@ export class MarketService {
         const tf = parseTimeframe(tfRaw);
         if (!tf) throw new UpstreamError(`Unsupported timeframe ${tfRaw}`, 400);
         let lastErr: unknown = null;
+        let failures = 0;
+        let limitedFailures = 0;
+        const limited = new Map<BridgeId, number>();
         const candidates = entry.sources.filter((s) => this.bridge(s.bridge));
         // Prefer healthy bridges, but never give up while an untried one remains.
         const ordered = [...candidates.filter((s) => this.healthy(s.bridge)), ...candidates.filter((s) => !this.healthy(s.bridge))].filter((s) => this.bridge(s.bridge)!.supports(tf, entry));
@@ -96,10 +99,18 @@ export class MarketService {
                 return { entry, source: src.bridge, bars };
             } catch (err) {
                 lastErr = err;
+                failures += 1;
+                const wait = rateLimitWait(err);
+                if (wait != null) {
+                    limitedFailures += 1;
+                    limited.set(src.bridge, Math.min(wait, limited.get(src.bridge) ?? Infinity));
+                }
                 if (!(err instanceof UpstreamError && err.status === 400)) this.record(src.bridge, false);
                 if (err instanceof UpstreamError && err.status === 400) throw err;
             }
         }
+        // Blame the limit only when it is what stopped every source, not one failure among others.
+        if (limitedFailures > 0 && limitedFailures === failures) throw new ProviderLimitError([...limited.keys()], Math.min(...limited.values()));
         if (lastErr) throw lastErr;
         return { entry, source: ordered[0]?.bridge ?? 'yahoo', bars: [] };
     }

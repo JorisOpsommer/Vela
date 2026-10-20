@@ -14,6 +14,8 @@ interface InstrumentSpec {
     timezone: string;
     session: string;
     decimals?: number;
+    /** Minutes the source publishes this symbol late; absent = real time. */
+    delayMinutes?: number;
     yahoo?: string;
     coinbase?: string;
     alpaca?: string;
@@ -89,6 +91,7 @@ function instrumentEntry(symbol: string, spec: InstrumentSpec, has: { alpaca: bo
         timezone: spec.timezone,
         session: spec.session,
         ...(spec.decimals != null ? { decimals: spec.decimals } : {}),
+        ...(spec.delayMinutes ? { delayMinutes: spec.delayMinutes } : {}),
     };
 }
 

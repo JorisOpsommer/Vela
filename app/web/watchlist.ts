@@ -124,10 +124,7 @@ class WatchlistView {
         this.suggest.hidden = true;
         addRow.append(this.search, this.groupSelect, this.suggest);
 
-        const foot = el('div', 'wl-foot');
-        foot.innerHTML =
-            'Data: Alpaca, Finnhub, Yahoo Finance, Coinbase. Stocks may be delayed up to 15 min; volume in the newest bars is partial. Belgian power prices: <a href="https://energy-charts.info" target="_blank" rel="noopener noreferrer">Energy-Charts.info</a> (Fraunhofer ISE), CC BY 4.0.';
-        body.append(addRow, this.list, foot);
+        body.append(addRow, this.list);
         void this.load();
         void provider.listSymbols().then((rows) => {
             for (const r of rows) this.names.set(r.ticker.toUpperCase(), r);

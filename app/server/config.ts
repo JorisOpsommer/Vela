@@ -39,7 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         webDir: path.resolve(env.WEB_DIR ?? path.join(here, '../web')),
         configDir: path.resolve(env.CONFIG_DIR ?? path.join(here, '../../config')),
         sessionSecret,
-        sessionTtlMs: Number(env.SESSION_TTL_DAYS ?? 14) * 86_400_000,
+        sessionTtlMs: Number(env.SESSION_TTL_DAYS ?? 60) * 86_400_000,
         admin: adminUser && adminPass ? { username: adminUser, password: adminPass } : null,
         finnhubKey: str(env.FINNHUB_API_KEY),
         alpaca: keyId && secret

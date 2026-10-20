@@ -33,6 +33,8 @@ export interface CatalogEntry {
     session: string;
     /** Quote decimals hint. */
     decimals?: number;
+    /** Minutes the data runs behind the market; absent = real time. */
+    delayMinutes?: number;
 }
 
 export interface BarRequest {
@@ -63,7 +65,27 @@ export interface Bridge {
 }
 
 export class UpstreamError extends Error {
-    constructor(message: string, readonly status?: number) {
+    /** `retryAfterMs`: for a 429, when the source is expected to accept requests again. */
+    constructor(message: string, readonly status?: number, readonly retryAfterMs?: number) {
         super(message);
     }
+}
+
+/** No source could serve a request because every one that failed was over its rate limit. */
+export class ProviderLimitError extends UpstreamError {
+    constructor(readonly providers: BridgeId[], retryAfterMs: number) {
+        super(`Rate limit reached for ${providers.join(', ')}.`, 429, retryAfterMs);
+    }
+}
+
+/** Fallback wait when a source says "too many requests" without saying for how long. */
+const DEFAULT_RETRY_MS = 60_000;
+
+/**
+ * The rate-limit wait an error stands for, or null when it is some other failure. Our own
+ * budget and upstream 429s carry a status; a library error only carries the code in text.
+ */
+export function rateLimitWait(err: unknown): number | null {
+    if (err instanceof UpstreamError) return err.status === 429 ? (err.retryAfterMs ?? DEFAULT_RETRY_MS) : null;
+    return err instanceof Error && /\b429\b|rate.?limit/i.test(err.message) ? DEFAULT_RETRY_MS : null;
 }
