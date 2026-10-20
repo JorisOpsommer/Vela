@@ -8,7 +8,7 @@ const web = spawn('npx', ['vite', 'build', '--watch', '--mode', 'development'], 
 const ctx = await context(serverBuild);
 await ctx.rebuild();
 await ctx.watch();
-const env = { ...process.env, COOKIE_SECURE: process.env.COOKIE_SECURE ?? 'false', PORT: process.env.PORT ?? '8080' };
+const env = { ...process.env, PORT: process.env.PORT ?? '8080' };
 const server = spawn(process.execPath, ['--enable-source-maps', '--watch-path=dist/server', 'dist/server/index.js'], { stdio: 'inherit', env });
 const stop = () => {
     web.kill();

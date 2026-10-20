@@ -95,11 +95,13 @@ Manager, Traefik, Caddy, a Cloudflare Tunnel, …) at `http://<lxc-ip>:8080`. Th
   reads each visitor's real IP from `CF-Connecting-IP` or `X-Forwarded-For`, so a failed
   sign-in only locks out that visitor.
 
-Keep `COOKIE_SECURE=true` (the default) when users come in over HTTPS. Set the published
-host port with `APP_PORT` (default `8080`).
+- **Send `X-Forwarded-Proto: https`.** Cloudflare Tunnel and most proxies do this by
+  default. The app then uses a `Secure`, `__Host-` sign-in cookie and sends HSTS.
 
-For a quick LAN test before the proxy exists, set `COOKIE_SECURE=false` and open
-`http://<lxc-ip>:8080`. Do not expose that setup to the internet.
+You can also open `http://<lxc-ip>:8080` directly on your LAN without any setting: the app
+sees plain HTTP and uses a cookie without `Secure` for that address. Do not expose the
+plain-HTTP port to the internet. Set the published host port with `APP_PORT` (default
+`8080`).
 
 ### 4. Add users
 
@@ -112,7 +114,7 @@ an authenticator app on the same page.
 - **TLS at your proxy.** The app speaks plain HTTP; keep the port reachable only by your
   proxy (a firewall rule on the LXC, or no port forward on your router).
 - **Accounts.** Passwords are hashed with Argon2id. Sessions are random 256-bit tokens, stored
-  only as hashes, in `HttpOnly`, `Secure`, `SameSite=Lax` cookies. A session ends after 14 days
+  only as hashes, in `HttpOnly`, `SameSite=Lax` cookies that are also `Secure` whenever the request came over HTTPS. A session ends after 14 days
   without use; activity keeps extending it.
   Optional TOTP two-factor; its secrets are encrypted at rest. There is no public sign-up.
 - **Brute force.** Failed sign-ins are limited per client IP and per username, with growing
@@ -162,7 +164,7 @@ npm run dev
 ```
 
 `npm run dev` rebuilds the web app and the server on save and serves both at
-`http://localhost:8080` (it reads `../.env`; secure cookies are off in dev). Checks:
+`http://localhost:8080` (it reads `../.env`; plain HTTP is detected, so no cookie setting is needed). Checks:
 
 ```bash
 cd app && npm run typecheck && npm test && npm run build

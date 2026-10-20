@@ -22,7 +22,6 @@ const config: AppConfig = {
     webDir: '/nonexistent',
     configDir: '/nonexistent',
     sessionSecret: 's'.repeat(40),
-    cookieSecure: true,
     sessionTtlMs: 86_400_000,
     admin: null,
     finnhubKey: null,
@@ -81,14 +80,34 @@ async function login(username: string): Promise<{ cookie: string; csrf: string }
     expect(res.statusCode).toBe(200);
     const set = res.headers['set-cookie'];
     const raw = Array.isArray(set) ? set[0]! : set!;
-    expect(raw).toMatch(/^__Host-vela_session=/);
+    // Injected requests arrive over plain HTTP from loopback, like direct LAN access.
+    expect(raw).toMatch(/^vela_session=/);
     expect(raw).toMatch(/HttpOnly/);
-    expect(raw).toMatch(/Secure/);
+    expect(raw).not.toMatch(/Secure/);
     expect(raw).toMatch(/SameSite=Lax/);
     return { cookie: raw.split(';')[0]!, csrf: res.json().csrf };
 }
 
 describe('auth gate', () => {
+    it('detects HTTPS behind the proxy: __Host- cookie, Secure and HSTS only there', async () => {
+        const viaProxy = { origin: 'https://charts.test', host: 'charts.test', 'x-forwarded-proto': 'https' };
+        const res = await app.inject({ method: 'POST', url: '/api/auth/login', headers: viaProxy, payload: { username: 'root', password: PW } });
+        expect(res.statusCode).toBe(200);
+        const set = res.headers['set-cookie'];
+        const raw = Array.isArray(set) ? set[0]! : set!;
+        expect(raw).toMatch(/^__Host-vela_session=/);
+        expect(raw).toMatch(/Secure/);
+        expect(res.headers['strict-transport-security']).toMatch(/max-age=/);
+        const value = raw.split(';')[0]!.split('=')[1]!;
+
+        const https = { host: 'charts.test', 'x-forwarded-proto': 'https' };
+        expect((await app.inject({ url: '/', headers: { ...https, cookie: `__Host-vela_session=${value}` } })).statusCode).toBe(200);
+        // Each scheme reads only its own cookie name.
+        expect((await app.inject({ url: '/', headers: { host: 'charts.test', cookie: `__Host-vela_session=${value}` } })).statusCode).toBe(302);
+        expect((await app.inject({ url: '/', headers: { ...https, cookie: `vela_session=${value}` } })).statusCode).toBe(302);
+        expect((await app.inject({ url: '/', headers: { host: 'charts.test' } })).headers['strict-transport-security']).toBeUndefined();
+    });
+
     it('refuses data routes without a session', async () => {
         expect((await app.inject({ url: '/api/bars?symbol=IDX&tf=D' })).statusCode).toBe(401);
         expect((await app.inject({ url: '/api/quotes?symbols=IDX' })).statusCode).toBe(401);

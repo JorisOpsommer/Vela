@@ -57,6 +57,20 @@ export function clientIp(req: FastifyRequest): string {
     return peer;
 }
 
+/**
+ * Whether the browser reached us over HTTPS: TLS on this socket, or a reverse proxy on a
+ * private network that terminated TLS and says so in `X-Forwarded-Proto`. A public peer
+ * cannot claim HTTPS this way, and claiming it from the LAN only earns a cookie its
+ * plain-HTTP browser will refuse to send back.
+ */
+export function isHttps(req: FastifyRequest): boolean {
+    if ((req.socket as { encrypted?: boolean }).encrypted) return true;
+    if (!isPrivate(req.socket.remoteAddress ?? '')) return false;
+    const proto = req.headers['x-forwarded-proto'];
+    const first = typeof proto === 'string' ? proto.split(',')[0]?.trim().toLowerCase() : undefined;
+    return first === 'https';
+}
+
 /** `Origin` (or, failing that, `Referer`) must name this site — the host the request was
  *  addressed to, so the proxy must keep the `Host` header. Absent both ⇒ reject. */
 export function sameOrigin(req: FastifyRequest): boolean {

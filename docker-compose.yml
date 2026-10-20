@@ -11,7 +11,6 @@ services:
       DATA_DIR: /data
       PORT: "8080"
       # true when users reach the app over HTTPS (through your proxy); false for plain-HTTP LAN use.
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:

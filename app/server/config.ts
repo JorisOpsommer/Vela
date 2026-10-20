@@ -11,17 +11,10 @@ export interface AppConfig {
     /** Directory holding tickers.json. */
     configDir: string;
     sessionSecret: string;
-    /** Secure cookies (`__Host-` prefix). Off only for plain-HTTP LAN testing. */
-    cookieSecure: boolean;
     sessionTtlMs: number;
     admin: { username: string; password: string } | null;
     finnhubKey: string | null;
     alpaca: { keyId: string; secret: string; dataUrl: string; tradingUrl: string } | null;
-}
-
-function bool(v: string | undefined, fallback: boolean): boolean {
-    if (v == null || v === '') return fallback;
-    return /^(1|true|yes|on)$/i.test(v.trim());
 }
 
 function str(v: string | undefined): string | null {
@@ -46,7 +39,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         webDir: path.resolve(env.WEB_DIR ?? path.join(here, '../web')),
         configDir: path.resolve(env.CONFIG_DIR ?? path.join(here, '../../config')),
         sessionSecret,
-        cookieSecure: bool(env.COOKIE_SECURE, true),
         sessionTtlMs: Number(env.SESSION_TTL_DAYS ?? 14) * 86_400_000,
         admin: adminUser && adminPass ? { username: adminUser, password: adminPass } : null,
         finnhubKey: str(env.FINNHUB_API_KEY),

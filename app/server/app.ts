@@ -13,7 +13,7 @@ import type { AuthService, Session } from './auth/service';
 import type { MarketService } from './market/service';
 import type { LiveHub } from './market/live';
 import type { RelatedMap } from './analytics/related';
-import { applySecurityHeaders, clientIp, sameOrigin } from './security';
+import { applySecurityHeaders, clientIp, isHttps, sameOrigin } from './security';
 import { FailureLimiter, WindowCounter } from './auth/rate-limit';
 import { registerAuthRoutes } from './routes/auth';
 import { registerAdminRoutes } from './routes/admin';
@@ -26,6 +26,8 @@ declare module 'fastify' {
         session: Session | null;
         sessionToken: string | undefined;
         clientIp: string;
+        /** Reached over HTTPS (directly or via the proxy) — picks the cookie flavour. */
+        isHttps: boolean;
     }
 }
 
@@ -40,7 +42,6 @@ export interface AppDeps {
 }
 
 export interface AppContext extends AppDeps {
-    cookieName: string;
     setSessionCookie(reply: FastifyReply, token: string, expiresAt: number): void;
     clearSessionCookie(reply: FastifyReply): void;
     loginLimiterIp: FailureLimiter;
@@ -61,15 +62,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         logController: new LogController({ disableRequestLogging: true }),
     });
 
-    const cookieName = config.cookieSecure ? '__Host-vela_session' : 'vela_session';
+    // Over HTTPS the `__Host-` prefix pins the cookie to this exact origin and requires
+    // `Secure`; plain HTTP (LAN access) cannot carry either, so it gets a plain cookie. Each
+    // scheme reads only its own name, so a cookie planted over HTTP never counts on HTTPS.
+    const cookieName = (secure: boolean) => (secure ? '__Host-vela_session' : 'vela_session');
     const ctx: AppContext = {
         ...deps,
-        cookieName,
         setSessionCookie(reply, token, expiresAt) {
-            reply.setCookie(cookieName, token, { httpOnly: true, secure: config.cookieSecure, sameSite: 'lax', path: '/', expires: new Date(expiresAt) });
+            const secure = reply.request.isHttps;
+            reply.setCookie(cookieName(secure), token, { httpOnly: true, secure, sameSite: 'lax', path: '/', expires: new Date(expiresAt) });
         },
         clearSessionCookie(reply) {
-            reply.clearCookie(cookieName, { httpOnly: true, secure: config.cookieSecure, sameSite: 'lax', path: '/' });
+            const secure = reply.request.isHttps;
+            reply.clearCookie(cookieName(secure), { httpOnly: true, secure, sameSite: 'lax', path: '/' });
         },
         loginLimiterIp: new FailureLimiter({ maxFailures: 20, windowMs: 15 * 60_000, lockMs: 15 * 60_000, maxLockMs: 24 * 3_600_000 }),
         loginLimiterUser: new FailureLimiter({ maxFailures: 25, windowMs: 15 * 60_000, lockMs: 5 * 60_000, maxLockMs: 3_600_000 }),
@@ -82,13 +87,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     app.decorateRequest('session', null);
     app.decorateRequest('sessionToken', undefined);
     app.decorateRequest('clientIp', '');
+    app.decorateRequest('isHttps', false);
 
     const apiBudget = new WindowCounter(900, 60_000);
 
     app.addHook('onRequest', async (req, reply) => {
-        applySecurityHeaders(reply, config.cookieSecure);
+        req.isHttps = isHttps(req);
+        applySecurityHeaders(reply, req.isHttps);
         req.clientIp = clientIp(req);
-        req.sessionToken = req.cookies[cookieName];
+        req.sessionToken = req.cookies[cookieName(req.isHttps)];
         req.session = deps.auth.getSession(req.sessionToken);
         if (req.session?.refreshed && req.sessionToken) ctx.setSessionCookie(reply, req.sessionToken, req.session.expiresAt);
 
