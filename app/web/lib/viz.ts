@@ -100,7 +100,7 @@ export interface Series {
  * Time-series chart, stacked areas or plain lines, with a shared crosshair tooltip.
  * `xs` are epoch ms; one axis only.
  */
-export function timeChart(host: HTMLElement, xs: number[], series: Series[], opts: { mode: 'stack' | 'line'; height?: number; unit?: string; digits?: number }): void {
+export function timeChart(host: HTMLElement, xs: number[], series: Series[], opts: { mode: 'stack' | 'bars' | 'line'; height?: number; unit?: string; digits?: number }): void {
     host.replaceChildren();
     host.classList.add('chart');
     if (series.length > 1) host.append(legend(series.map((s) => ({ label: s.label, color: s.color }))));
@@ -111,7 +111,10 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
     const ih = H - m.t - m.b;
     const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
     const n = xs.length;
-    const x = (i: number) => m.l + (n <= 1 ? 0 : (i / (n - 1)) * iw);
+    const bars = opts.mode === 'bars';
+    const slot = iw / Math.max(1, n);
+    const x = (i: number) => (bars ? m.l + slot * (i + 0.5) : m.l + (n <= 1 ? 0 : (i / (n - 1)) * iw));
+    const stacked = opts.mode !== 'line';
 
     const stacks: number[][] = [];
     let max = 0;
@@ -120,20 +123,21 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
         const col: number[] = [];
         for (const s of series) {
             const v = s.values[i] ?? 0;
-            acc = opts.mode === 'stack' ? acc + v : v;
+            acc = stacked ? acc + v : v;
             col.push(acc);
             max = Math.max(max, acc);
         }
         stacks.push(col);
     }
-    const top = niceMax(max * 1.1);
+    // Four equal steps, each a round number.
+    const top = niceMax((max * 1.05) / 4) * 4;
     const y = (v: number) => m.t + ih - (v / top) * ih;
 
     for (let k = 0; k <= 4; k++) {
         const v = (top / 4) * k;
         svg.append(svgEl('line', { class: 'gridline', x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
         const label = svgEl('text', { class: 'axis', x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' });
-        label.textContent = fmt(v, top < 5 ? 1 : 0);
+        label.textContent = fmt(v, top < 4 ? 1 : 0);
         svg.append(label);
     }
     for (const i of [0, Math.floor((n - 1) / 2), n - 1]) {
@@ -144,7 +148,17 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
     }
 
     series.forEach((s, si) => {
-        if (opts.mode === 'stack') {
+        if (bars) {
+            const w = Math.max(1, slot - 2);
+            for (let i = 0; i < n; i++) {
+                const v = s.values[i] ?? 0;
+                if (v <= 0) continue;
+                const y1 = y(stacks[i]![si]!);
+                const y0 = y(si ? stacks[i]![si - 1]! : 0);
+                // 1px surface gap between stacked segments.
+                svg.append(svgEl('rect', { x: x(i) - w / 2, y: y1, width: w, height: Math.max(1, y0 - y1 - 1), fill: s.color, rx: Math.min(2, w / 3) }));
+            }
+        } else if (opts.mode === 'stack') {
             let d = '';
             for (let i = 0; i < n; i++) d += `${i ? 'L' : 'M'}${x(i)},${y(stacks[i]![si]!)}`;
             for (let i = n - 1; i >= 0; i--) d += `L${x(i)},${y(si ? stacks[i]![si - 1]! : 0)}`;
@@ -162,6 +176,12 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
                 pen = true;
             }
             svg.append(svgEl('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+            // A lone value between gaps draws no line: mark it with a dot.
+            for (let i = 0; i < n; i++) {
+                const v = s.values[i];
+                if (v == null || s.values[i - 1] != null || s.values[i + 1] != null) continue;
+                svg.append(svgEl('circle', { cx: x(i), cy: y(v), r: 4, fill: s.color, stroke: 'var(--surface-1)', 'stroke-width': 2 }));
+            }
         }
     });
 
@@ -171,12 +191,12 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
     hit.addEventListener('pointermove', (ev) => {
         const r = svg.getBoundingClientRect();
         const px = ((ev.clientX - r.left) / r.width) * W;
-        const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / iw) * (n - 1))));
+        const i = Math.max(0, Math.min(n - 1, bars ? Math.floor((px - m.l) / slot) : Math.round(((px - m.l) / iw) * (n - 1))));
         cross.setAttribute('x1', String(x(i)));
         cross.setAttribute('x2', String(x(i)));
         cross.setAttribute('visibility', 'visible');
         const rows = series.map((s) => ({ label: s.label, value: `${fmt(s.values[i] ?? null, opts.digits ?? 0)}${opts.unit ?? ''}`, color: s.color }));
-        if (opts.mode === 'stack' && series.length > 1) rows.push({ label: 'Total', value: `${fmt(stacks[i]![series.length - 1]!, opts.digits ?? 0)}${opts.unit ?? ''}`, color: '' });
+        if (stacked && series.length > 1) rows.push({ label: 'Total', value: `${fmt(stacks[i]![series.length - 1]!, opts.digits ?? 0)}${opts.unit ?? ''}`, color: '' });
         showTip(ev.clientX, ev.clientY, new Date(xs[i]!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), rows);
     });
     hit.addEventListener('pointerleave', () => {

@@ -13,10 +13,6 @@ export interface AppConfig {
     sessionSecret: string;
     /** Secure cookies (`__Host-` prefix). Off only for plain-HTTP LAN testing. */
     cookieSecure: boolean;
-    /** Trust `CF-Connecting-IP` / `X-Forwarded-For` from private-network peers (the tunnel). */
-    trustProxyHeaders: boolean;
-    /** Public origin (e.g. `https://charts.example.com`) — state-changing requests must match it. */
-    publicOrigin: string | null;
     sessionTtlMs: number;
     admin: { username: string; password: string } | null;
     finnhubKey: string | null;
@@ -42,8 +38,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const secret = str(env.ALPACA_API_SECRET_KEY);
     const adminUser = str(env.ADMIN_USERNAME);
     const adminPass = str(env.ADMIN_PASSWORD);
-    const publicOrigin = str(env.PUBLIC_ORIGIN)?.replace(/\/+$/, '') ?? null;
-    if (publicOrigin && !/^https?:\/\/[^/]+$/.test(publicOrigin)) throw new Error(`PUBLIC_ORIGIN must look like https://charts.example.com (got ${publicOrigin}).`);
     const here = path.dirname(new URL(import.meta.url).pathname);
     return {
         port: Number(env.PORT ?? 8080),
@@ -53,8 +47,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         configDir: path.resolve(env.CONFIG_DIR ?? path.join(here, '../../config')),
         sessionSecret,
         cookieSecure: bool(env.COOKIE_SECURE, true),
-        trustProxyHeaders: bool(env.TRUST_PROXY_HEADERS, false),
-        publicOrigin,
         sessionTtlMs: Number(env.SESSION_TTL_DAYS ?? 14) * 86_400_000,
         admin: adminUser && adminPass ? { username: adminUser, password: adminPass } : null,
         finnhubKey: str(env.FINNHUB_API_KEY),

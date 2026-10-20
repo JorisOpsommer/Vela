@@ -86,18 +86,17 @@ After the first start you can clear `ADMIN_PASSWORD` from `.env`.
 ### 3. Put it behind HTTPS
 
 The app does not terminate TLS itself. Point your reverse proxy or tunnel (Nginx Proxy
-Manager, Traefik, Caddy, a Cloudflare Tunnel, …) at `http://<lxc-ip>:8080`, then set these in
-`.env` and run `docker compose up -d` again:
+Manager, Traefik, Caddy, a Cloudflare Tunnel, …) at `http://<lxc-ip>:8080`. The proxy must:
 
-| Setting | Value |
-| --- | --- |
-| `PUBLIC_ORIGIN` | The address users type, for example `https://charts.example.com`. Sign-in and the live stream only accept requests from this origin. |
-| `COOKIE_SECURE` | `true` (the default) when users come in over HTTPS. Use `false` only for plain-HTTP access on your LAN. |
-| `TRUST_PROXY_HEADERS` | `true` if only your proxy can reach port 8080, so the sign-in limiter sees real client IPs (from `CF-Connecting-IP` or `X-Forwarded-For`). Leave `false` if the port is reachable directly — clients could otherwise fake their IP. |
-| `APP_BIND` | `127.0.0.1` if the proxy runs on the same host, so the port is not exposed to the network. |
+- **Keep the `Host` header.** Sign-in and the live stream accept requests only from the
+  address the request was sent to.
+- **Pass WebSocket upgrades** on `/api/stream` (live candles).
+- **Run on a private network address** (LAN, Docker network or the same host). The app then
+  reads each visitor's real IP from `CF-Connecting-IP` or `X-Forwarded-For`, so a failed
+  sign-in only locks out that visitor.
 
-The proxy must pass WebSocket upgrades on `/api/stream` (live candles) and keep the `Host`
-header — or set `PUBLIC_ORIGIN`, which makes the origin check independent of it.
+Keep `COOKIE_SECURE=true` (the default) when users come in over HTTPS. Set the published
+host port with `APP_PORT` (default `8080`).
 
 For a quick LAN test before the proxy exists, set `COOKIE_SECURE=false` and open
 `http://<lxc-ip>:8080`. Do not expose that setup to the internet.
@@ -111,14 +110,14 @@ an authenticator app on the same page.
 ## Security
 
 - **TLS at your proxy.** The app speaks plain HTTP; keep the port reachable only by your
-  proxy (or bind it to `127.0.0.1`).
+  proxy (a firewall rule on the LXC, or no port forward on your router).
 - **Accounts.** Passwords are hashed with Argon2id. Sessions are random 256-bit tokens, stored
   only as hashes, in `HttpOnly`, `Secure`, `SameSite=Lax` cookies. A session ends after 14 days
   without use; activity keeps extending it.
   Optional TOTP two-factor; its secrets are encrypted at rest. There is no public sign-up.
 - **Brute force.** Failed sign-ins are limited per client IP and per username, with growing
-  lockouts. Forwarded client-IP headers are honoured only with `TRUST_PROXY_HEADERS=true`,
-  and only from private-network peers.
+  lockouts. Forwarded client-IP headers are honoured only from private-network peers (your
+  proxy); a client connecting from the internet cannot fake its IP.
 - **Requests.** Every state-changing call needs a per-session CSRF token and a same-origin
   `Origin`. A strict Content-Security-Policy allows scripts from the app itself only.
 - **Keys.** The browser never sees an API key: all data flows through the server, and only

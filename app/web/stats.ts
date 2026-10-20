@@ -41,6 +41,8 @@ const META: Record<string, { name: string; role: string }> = {
 };
 
 const REFRESH_MS = 5_000;
+/** Entrance animation on the first paint only — refreshes swap content in place. */
+let first = true;
 
 function ago(t: number | null, now: number): string {
     if (!t) return 'never';
@@ -61,12 +63,12 @@ function budgetUse(b: BridgeStats): { fraction: number | null; limit: number | n
     const own = b.budget?.perMinute ?? null;
     const pub = b.published.perMinute;
     const limit = pub != null && own != null ? Math.min(pub, own) : (pub ?? own);
-    return { fraction: limit ? b.callsLastMinute / limit : null, limit, source: pub != null && (own == null || pub <= own) ? 'published limit' : 'our budget' };
+    return { fraction: limit ? b.callsLastMinute / limit : null, limit, source: pub != null && (own == null || pub <= own) ? 'the published limit' : 'our own, stricter budget' };
 }
 
-function providerCard(b: BridgeStats, color: string, now: number): HTMLElement {
+function providerCard(b: BridgeStats, color: string, now: number, animate: boolean): HTMLElement {
     const meta = META[b.id] ?? { name: b.id, role: '' };
-    const card = h('div', 'card fade-in');
+    const card = h('div', `card provider${animate ? ' fade-in' : ''}`);
     const head = h('div');
     head.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px';
     const title = h('div');
@@ -86,7 +88,7 @@ function providerCard(b: BridgeStats, color: string, now: number): HTMLElement {
     mid.style.cssText = 'display:flex;align-items:center;gap:14px;margin:14px 0 8px';
     mid.append(gauge(use.fraction, 'budget used'));
     const facts = h('div');
-    facts.style.cssText = 'display:grid;grid-template-columns:auto auto;gap:4px 12px;font-size:12.5px;color:var(--text-secondary)';
+    facts.style.cssText = 'display:grid;grid-template-columns:auto auto;gap:4px 14px;font-size:12.5px;color:var(--text-secondary);white-space:nowrap';
     const fact = (k: string, v: string) => {
         const kk = h('span', '', k);
         kk.style.color = 'var(--text-muted)';
@@ -110,7 +112,7 @@ function providerCard(b: BridgeStats, color: string, now: number): HTMLElement {
     foot.append(h('span', '', `${fmt(b.calls60m)} calls in 60 min · ${fmt(b.total)} since start`), h('span', '', `last ok ${ago(b.lastOkAt, now)}`));
     card.append(foot);
 
-    const note = h('div', '', `${b.published.note}${use.limit ? ` · gauge uses the ${use.source}` : ''}${b.budget && b.budget.waiting ? ` · ${b.budget.waiting} queued` : ''}`);
+    const note = h('div', '', `${b.published.note}${use.limit ? ` · gauge uses ${use.source}` : ''}${b.budget && b.budget.waiting ? ` · ${b.budget.waiting} queued` : ''}`);
     note.style.cssText = 'color:var(--text-muted);font-size:11.5px;margin-top:8px';
     card.append(note);
 
@@ -150,14 +152,15 @@ async function refresh(): Promise<void> {
     );
 
     const grid = document.getElementById('providers')!;
-    grid.replaceChildren(...s.bridges.map((b, i) => providerCard(b, SERIES[i]!, now)));
+    grid.replaceChildren(...s.bridges.map((b, i) => providerCard(b, SERIES[i]!, now, first)));
+    first = false;
 
     const xs = s.bridges[0]?.series.map((p) => p.t) ?? [];
     timeChart(
         document.getElementById('chart-calls')!,
         xs,
         s.bridges.map((b, i) => ({ label: META[b.id]?.name ?? b.id, color: SERIES[i]!, values: b.series.map((p) => p.calls) })),
-        { mode: 'stack', height: 220 },
+        { mode: 'bars', height: 220 },
     );
     timeChart(
         document.getElementById('chart-latency')!,

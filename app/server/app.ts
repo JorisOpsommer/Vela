@@ -87,7 +87,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     app.addHook('onRequest', async (req, reply) => {
         applySecurityHeaders(reply, config.cookieSecure);
-        req.clientIp = clientIp(req, config.trustProxyHeaders);
+        req.clientIp = clientIp(req);
         req.sessionToken = req.cookies[cookieName];
         req.session = deps.auth.getSession(req.sessionToken);
         if (req.session?.refreshed && req.sessionToken) ctx.setSessionCookie(reply, req.sessionToken, req.session.expiresAt);
@@ -96,14 +96,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         if (!url.startsWith('/api/')) return;
         reply.header('Cache-Control', 'no-store');
         if (PUBLIC_API.has(url)) {
-            if (!SAFE_METHODS.has(req.method) && !sameOrigin(req, config.publicOrigin)) return reply.code(403).send({ error: 'Cross-origin request refused.' });
+            if (!SAFE_METHODS.has(req.method) && !sameOrigin(req)) return reply.code(403).send({ error: 'Cross-origin request refused.' });
             return;
         }
         if (!req.session) return reply.code(401).send({ error: 'Not signed in.' });
         if (!apiBudget.hit(`u${req.session.user.id}`)) return reply.code(429).send({ error: 'Too many requests.' });
         if (!SAFE_METHODS.has(req.method)) {
             const token = req.headers['x-csrf-token'];
-            if (typeof token !== 'string' || token !== req.session.csrf || !sameOrigin(req, config.publicOrigin)) {
+            if (typeof token !== 'string' || token !== req.session.csrf || !sameOrigin(req)) {
                 return reply.code(403).send({ error: 'Invalid CSRF token.' });
             }
         }

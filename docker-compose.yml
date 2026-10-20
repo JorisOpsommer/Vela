@@ -12,13 +12,8 @@ services:
       PORT: "8080"
       # true when users reach the app over HTTPS (through your proxy); false for plain-HTTP LAN use.
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
-      # true only if nothing but your proxy can reach the published port (client IPs are then
-      # read from CF-Connecting-IP / X-Forwarded-For for the sign-in rate limiter).
-      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
-      # The address users type, e.g. https://charts.example.com. Empty = compare with the Host header.
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     ports:
-      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8080}:8080"
+      - "${APP_PORT:-8080}:8080"
     volumes:
       - vela-data:/data
     read_only: true

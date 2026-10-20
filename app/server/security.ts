@@ -40,13 +40,15 @@ function isPrivate(ip: string): boolean {
 }
 
 /**
- * The browser's IP. Forwarded headers are honoured only when `trust` is on AND the TCP
- * peer is on a private network (the tunnel container) — a direct internet client cannot
- * spoof its way past the login limiter.
+ * The browser's IP. Forwarded headers (`CF-Connecting-IP`, `X-Forwarded-For`) are honoured
+ * only when the TCP peer is on a private network — the reverse proxy in front of the app.
+ * Without this, everyone behind the proxy shares its IP and one guesser locks out all.
+ * A direct internet client arrives from a public address, so it cannot spoof its way
+ * past the login limiter.
  */
-export function clientIp(req: FastifyRequest, trust: boolean): string {
+export function clientIp(req: FastifyRequest): string {
     const peer = req.socket.remoteAddress ?? 'unknown';
-    if (!trust || !isPrivate(peer)) return peer;
+    if (!isPrivate(peer)) return peer;
     const cf = req.headers['cf-connecting-ip'];
     if (typeof cf === 'string' && net.isIP(cf.trim())) return cf.trim();
     const xff = req.headers['x-forwarded-for'];
@@ -55,8 +57,9 @@ export function clientIp(req: FastifyRequest, trust: boolean): string {
     return peer;
 }
 
-/** `Origin` (or, failing that, `Referer`) must name this site. Absent both ⇒ reject. */
-export function sameOrigin(req: FastifyRequest, publicOrigin: string | null): boolean {
+/** `Origin` (or, failing that, `Referer`) must name this site — the host the request was
+ *  addressed to, so the proxy must keep the `Host` header. Absent both ⇒ reject. */
+export function sameOrigin(req: FastifyRequest): boolean {
     const raw = (req.headers.origin as string | undefined) ?? (req.headers.referer as string | undefined);
     if (!raw) return false;
     let origin: URL;
@@ -65,7 +68,6 @@ export function sameOrigin(req: FastifyRequest, publicOrigin: string | null): bo
     } catch {
         return false;
     }
-    if (publicOrigin) return origin.origin === publicOrigin;
     const host = req.headers.host;
     return !!host && origin.host === host;
 }

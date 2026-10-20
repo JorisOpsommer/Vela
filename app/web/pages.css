@@ -164,10 +164,18 @@ main.page {
     gap: 14px;
 }
 .grid.kpis {
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 .grid.two {
     grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+.grid.providers {
+    grid-template-columns: repeat(auto-fit, minmax(370px, 1fr));
+}
+@media (max-width: 420px) {
+    .grid.providers {
+        grid-template-columns: 1fr;
+    }
 }
 .grid.three {
     grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));

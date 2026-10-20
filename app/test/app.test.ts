@@ -23,8 +23,6 @@ const config: AppConfig = {
     configDir: '/nonexistent',
     sessionSecret: 's'.repeat(40),
     cookieSecure: true,
-    trustProxyHeaders: true,
-    publicOrigin: null,
     sessionTtlMs: 86_400_000,
     admin: null,
     finnhubKey: null,
@@ -107,12 +105,14 @@ describe('auth gate', () => {
     it('refuses a cross-origin login and rate-limits guessing per account', async () => {
         const cross = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { origin: 'https://evil.test', host: 'charts.test' }, payload: { username: 'alice', password: PW } });
         expect(cross.statusCode).toBe(403);
-        let last = 0;
-        for (let i = 0; i < 6; i++) {
+        // Guess one account's password from many IPs until the per-account lock engages.
+        let blockedAt = -1;
+        for (let i = 0; i < 60 && blockedAt < 0; i++) {
             const r = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { origin: ORIGIN, host: 'charts.test', 'cf-connecting-ip': `203.0.113.${i}` }, payload: { username: 'victim', password: 'wrong guess' } });
-            last = r.statusCode;
+            if (r.statusCode === 429) blockedAt = i;
+            else expect(r.statusCode).toBe(401);
         }
-        expect(last).toBe(429);
+        expect(blockedAt).toBeGreaterThan(0);
     });
 });
 

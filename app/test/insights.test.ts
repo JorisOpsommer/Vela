@@ -32,7 +32,7 @@ describe('Metrics', () => {
 
 describe('RelatedMap', () => {
     it('keeps the shipped map closed and symmetric', () => {
-        expect(related.symbols.size).toBeGreaterThan(300);
+        expect(related.symbols.size).toBeGreaterThan(1000);
         for (const [sym, e] of related.symbols) {
             for (const p of e.p) expect(related.symbols.has(p), `${sym} → ${p}`).toBe(true);
             for (const p of related.peersOf(sym)) expect(related.peersOf(p)).toContain(sym);

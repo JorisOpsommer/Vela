@@ -226,14 +226,15 @@ export function buildInsights(opts: {
     }
 
     const exclude = new Set([...opens.keys(), ...opts.watchlist]);
-    const suggestions: Suggestion[] = opts.related.suggest(interest, exclude, 12).filter((s) => opts.catalog.resolve(s.symbol));
+    // Ask for extra, then drop anything no longer listed (the map is hand-maintained).
+    const suggestions: Suggestion[] = opts.related.suggest(interest, exclude, 18).filter((s) => opts.catalog.isListed(s.symbol)).slice(0, 12);
     const topInterest = [...interest.entries()].filter(([s]) => opts.related.get(s)).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const because = topInterest.map(([sym]) => ({
         symbol: sym,
         name: opts.related.get(sym)!.n,
         peers: opts.related
             .peersOf(sym)
-            .filter((p) => !exclude.has(p))
+            .filter((p) => !exclude.has(p) && opts.catalog.isListed(p))
             .slice(0, 5)
             .map((p) => ({ symbol: p, name: opts.related.get(p)!.n })),
     }));

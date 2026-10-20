@@ -127,6 +127,18 @@ export class Catalog {
         return null;
     }
 
+    /**
+     * Whether `symbol` is a live listing: a configured instrument, or an equity on the
+     * broker's current asset list. Before that list loads, every plausible ticker passes.
+     */
+    isListed(symbol: string): boolean {
+        const sym = symbol.trim().toUpperCase();
+        const e = this.entries.get(sym);
+        if (e && e.class !== 'stock') return true;
+        if (this.equities.length === 0) return this.resolve(sym) != null;
+        return e != null;
+    }
+
     /** True for instruments that follow the US exchange calendar (sessions, holidays). */
     followsUsCalendar(entry: CatalogEntry): boolean {
         return entry.class === 'stock' || entry.class === 'etf' || this.usCalendar.has(entry.symbol);

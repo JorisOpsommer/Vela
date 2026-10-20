@@ -133,7 +133,7 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
     });
 
     app.get('/api/stream', { websocket: true }, (socket, req) => {
-        if (!sameOrigin(req, ctx.config.publicOrigin)) {
+        if (!sameOrigin(req)) {
             socket.close(1008, 'origin');
             return;
         }
