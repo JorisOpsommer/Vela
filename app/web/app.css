@@ -1,0 +1,283 @@
+html,
+body {
+    margin: 0;
+    height: 100%;
+    background: #131722;
+    color: #d1d4dc;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+#app {
+    position: fixed;
+    inset: 0;
+}
+
+.boot-error {
+    padding: 24px;
+    color: #f23645;
+}
+
+/* ── Watchlist panel (inside the chart shell: uses its theme tokens) ── */
+.wl {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    font-size: var(--vela-font-size-md, 13px);
+    color: var(--vela-fg, #d1d4dc);
+}
+
+.wl-icon-btn {
+    background: none;
+    border: 0;
+    color: var(--vela-fg-muted, #868a96);
+    font-size: 15px;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--vela-radius-sm, 4px);
+    cursor: pointer;
+}
+.wl-icon-btn:hover {
+    background: var(--vela-hover, #2a2e39);
+    color: var(--vela-fg-bright, #fff);
+}
+
+.wl-add {
+    position: relative;
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--vela-border, #2a2e39);
+}
+.wl-search,
+.wl-group-select {
+    background: var(--vela-surface, #1e222d);
+    border: 1px solid var(--vela-border, #2a2e39);
+    color: var(--vela-fg, #d1d4dc);
+    border-radius: var(--vela-radius-sm, 4px);
+    padding: 5px 8px;
+    font: inherit;
+    min-width: 0;
+}
+.wl-search {
+    flex: 1;
+    text-transform: uppercase;
+}
+.wl-search::placeholder {
+    text-transform: none;
+}
+.wl-group-select {
+    max-width: 42%;
+}
+.wl-search:focus,
+.wl-group-select:focus {
+    outline: none;
+    border-color: var(--vela-accent, #2962ff);
+}
+.wl-suggest {
+    position: absolute;
+    top: 100%;
+    left: 10px;
+    right: 10px;
+    z-index: 5;
+    background: var(--vela-surface-elev, #1e222d);
+    border: 1px solid var(--vela-border-strong, #363a45);
+    border-radius: var(--vela-radius-sm, 4px);
+    box-shadow: var(--vela-shadow, 0 4px 16px rgba(0, 0, 0, 0.4));
+    max-height: 280px;
+    overflow: auto;
+}
+.wl-suggest[hidden] {
+    display: none !important;
+}
+.wl-suggest-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 6px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.wl-suggest-row span {
+    color: var(--vela-fg-muted, #868a96);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+.wl-suggest-row em {
+    font-style: normal;
+    font-size: 11px;
+    color: var(--vela-fg-muted, #868a96);
+}
+.wl-suggest-row:hover {
+    background: var(--vela-hover, #2a2e39);
+}
+
+.wl-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.wl-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px 5px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vela-fg-muted, #868a96);
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+    background: var(--vela-bg, #131722);
+    z-index: 1;
+}
+.wl-caret {
+    width: 10px;
+}
+.wl-group-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wl-count {
+    font-weight: 400;
+}
+.wl-group-actions {
+    display: none;
+    gap: 2px;
+}
+.wl-group:hover .wl-group-actions {
+    display: inline-flex;
+}
+.wl-group:hover .wl-count {
+    display: none;
+}
+.wl-mini {
+    background: none;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 3px;
+    font-size: 12px;
+}
+.wl-mini:hover {
+    color: var(--vela-fg-bright, #fff);
+}
+
+.wl-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto 64px 18px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+}
+.wl-row:hover,
+.wl-row:focus-visible {
+    background: var(--vela-hover, #2a2e39);
+    outline: none;
+}
+.wl-row.active {
+    background: rgba(41, 98, 255, 0.16);
+    border-left-color: var(--vela-accent, #2962ff);
+}
+.wl-ico {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--vela-surface-elev, #2a2e39);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vela-fg-muted, #868a96);
+    overflow: hidden;
+}
+.wl-ico img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.wl-label {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.wl-sym {
+    font-weight: 600;
+    color: var(--vela-fg-bright, #f0f3fa);
+}
+.wl-name {
+    font-size: 11px;
+    color: var(--vela-fg-muted, #868a96);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.wl-last {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    border-radius: 3px;
+    padding: 1px 3px;
+}
+.wl-chg {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--vela-fg-muted, #868a96);
+}
+.wl-row.up .wl-chg {
+    color: var(--vela-up, #22ab94);
+}
+.wl-row.down .wl-chg {
+    color: var(--vela-down, #f23645);
+}
+.wl-remove {
+    visibility: hidden;
+    background: none;
+    border: 0;
+    color: var(--vela-fg-muted, #868a96);
+    cursor: pointer;
+    padding: 0;
+    font-size: 11px;
+}
+.wl-row:hover .wl-remove {
+    visibility: visible;
+}
+.wl-remove:hover {
+    color: var(--vela-down, #f23645);
+}
+.flash-up {
+    animation: wl-flash-up 0.9s ease-out;
+}
+.flash-down {
+    animation: wl-flash-down 0.9s ease-out;
+}
+@keyframes wl-flash-up {
+    from {
+        background: rgba(34, 171, 148, 0.35);
+    }
+}
+@keyframes wl-flash-down {
+    from {
+        background: rgba(242, 54, 69, 0.35);
+    }
+}
+
+.wl-foot {
+    padding: 8px 10px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--vela-fg-muted, #868a96);
+    border-top: 1px solid var(--vela-border, #2a2e39);
+}
+.wl-foot a {
+    color: inherit;
+}

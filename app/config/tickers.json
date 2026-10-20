@@ -1,0 +1,36 @@
+{
+  "$comment": "Default watchlist groups and how each non-equity symbol is sourced. US stocks and ETFs need no entry: their name and listing exchange come from the broker's asset list. Edit freely; restart the app to apply.",
+  "groups": [
+    { "name": "Indices & ETFs", "symbols": ["SPY", "QQQ", "DJI", "NDQ", "DAX", "NI225"] },
+    { "name": "Macro", "symbols": ["VIX", "DXY", "EURUSD"] },
+    { "name": "Crypto", "symbols": ["BTCUSD", "ETHUSD", "ETHBTC"] },
+    { "name": "Energy", "symbols": ["BRENT", "WTI", "TTF", "BELPEX", "OXY"] },
+    { "name": "Big Tech", "symbols": ["AAPL", "MSFT", "GOOGL", "META", "AMZN", "NFLX", "SPOT", "SNAP"] },
+    { "name": "Semiconductors", "symbols": ["NVDA", "AMD", "INTC", "TSM"] },
+    { "name": "Growth & Crypto Stocks", "symbols": ["TSLA", "MSTR", "COIN", "CRWD", "PYPL", "ENPH", "SEDG"] },
+    { "name": "Consumer", "symbols": ["NKE", "DIS", "MCD", "CMG", "CHWY", "BYND", "KOF", "TM", "BABA"] },
+    { "name": "Financials & Defensive", "symbols": ["BAC", "JPM", "V", "BRK.A", "JNJ", "PFE", "T"] },
+    { "name": "Speculative", "symbols": ["GME", "AMC", "BB", "DJT", "GRND"] }
+  ],
+  "instruments": {
+    "DJI": { "name": "Dow Jones Industrial Average", "class": "index", "prefix": "INDEX", "yahoo": "^DJI", "currency": "USD", "timezone": "America/New_York", "session": "0930-1600", "usCalendar": true },
+    "NDQ": { "name": "Nasdaq 100 Index", "class": "index", "prefix": "INDEX", "yahoo": "^NDX", "currency": "USD", "timezone": "America/New_York", "session": "0930-1600", "usCalendar": true },
+    "SPX": { "name": "S&P 500 Index", "class": "index", "prefix": "INDEX", "yahoo": "^GSPC", "currency": "USD", "timezone": "America/New_York", "session": "0930-1600", "usCalendar": true },
+    "DAX": { "name": "DAX Performance Index", "class": "index", "prefix": "INDEX", "yahoo": "^GDAXI", "currency": "EUR", "timezone": "Europe/Berlin", "session": "0900-1730" },
+    "NI225": { "name": "Nikkei 225", "class": "index", "prefix": "INDEX", "yahoo": "^N225", "currency": "JPY", "timezone": "Asia/Tokyo", "session": "0900-1530" },
+    "BEL20": { "name": "BEL 20 Index", "class": "index", "prefix": "INDEX", "yahoo": "^BFX", "currency": "EUR", "timezone": "Europe/Brussels", "session": "0900-1730" },
+    "VIX": { "name": "CBOE Volatility Index", "class": "index", "prefix": "INDEX", "yahoo": "^VIX", "currency": "USD", "timezone": "America/Chicago", "session": "24x7" },
+    "DXY": { "name": "U.S. Dollar Index", "class": "index", "prefix": "INDEX", "yahoo": "DX-Y.NYB", "currency": "USD", "timezone": "America/New_York", "session": "24x7" },
+    "EURUSD": { "name": "Euro / U.S. Dollar", "class": "forex", "prefix": "FX", "yahoo": "EURUSD=X", "finnhubLive": "OANDA:EUR_USD", "currency": "USD", "timezone": "Europe/London", "session": "24x7", "decimals": 5 },
+    "BTCUSD": { "name": "Bitcoin / U.S. Dollar", "class": "crypto", "prefix": "CRYPTO", "coinbase": "BTC-USD", "alpaca": "BTC/USD", "currency": "USD", "timezone": "Etc/UTC", "session": "24x7" },
+    "ETHUSD": { "name": "Ethereum / U.S. Dollar", "class": "crypto", "prefix": "CRYPTO", "coinbase": "ETH-USD", "alpaca": "ETH/USD", "currency": "USD", "timezone": "Etc/UTC", "session": "24x7" },
+    "ETHBTC": { "name": "Ethereum / Bitcoin", "class": "crypto", "prefix": "CRYPTO", "coinbase": "ETH-BTC", "alpaca": "ETH/BTC", "currency": "BTC", "timezone": "Etc/UTC", "session": "24x7", "decimals": 6 },
+    "SOLUSD": { "name": "Solana / U.S. Dollar", "class": "crypto", "prefix": "CRYPTO", "coinbase": "SOL-USD", "alpaca": "SOL/USD", "currency": "USD", "timezone": "Etc/UTC", "session": "24x7" },
+    "BRENT": { "name": "Brent Crude Oil Futures", "class": "futures", "prefix": "NYMEX", "yahoo": "BZ=F", "currency": "USD", "timezone": "America/New_York", "session": "24x7" },
+    "WTI": { "name": "WTI Crude Oil Futures", "class": "futures", "prefix": "NYMEX", "yahoo": "CL=F", "currency": "USD", "timezone": "America/New_York", "session": "24x7" },
+    "TTF": { "name": "Dutch TTF Natural Gas Futures (EUR/MWh)", "class": "futures", "prefix": "ICE", "yahoo": "TTF=F", "currency": "EUR", "timezone": "Europe/Amsterdam", "session": "24x7" },
+    "NATGAS": { "name": "Henry Hub Natural Gas Futures", "class": "futures", "prefix": "NYMEX", "yahoo": "NG=F", "currency": "USD", "timezone": "America/New_York", "session": "24x7" },
+    "GOLD": { "name": "Gold Futures", "class": "futures", "prefix": "COMEX", "yahoo": "GC=F", "currency": "USD", "timezone": "America/New_York", "session": "24x7" },
+    "BELPEX": { "name": "Belgium Day-Ahead Power Price (EUR/MWh)", "class": "power", "prefix": "EPEX", "energycharts": "BE", "currency": "EUR", "timezone": "Europe/Brussels", "session": "24x7", "decimals": 2 }
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>Insights · Charts</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    </head>
+    <body class="gradient-page insights">
+        <main class="page">
+            <section class="hero">
+                <h1 id="title">Your trading fingerprint</h1>
+                <p id="subtitle">What you watch, when you watch it, and where to look next — computed on this server from your own chart activity.</p>
+                <div class="badges" id="badges"></div>
+            </section>
+            <div class="grid kpis" id="kpis"></div>
+
+            <div class="section-title">For you <small>related to what you browse — from a local map of sectors, industries, themes and peers</small></div>
+            <div class="suggestions" id="suggestions"></div>
+            <div class="because" id="because"></div>
+
+            <div class="section-title">Your favorites</div>
+            <div class="grid two">
+                <div class="card"><h3>Most opened<span class="sub">opens · minutes on chart</span></h3><div id="top-symbols"></div></div>
+                <div class="card"><h3>Themes you follow</h3><div class="chips" id="themes"></div><h3 style="margin-top:18px">Sectors</h3><div id="sectors"></div></div>
+            </div>
+
+            <div class="section-title">How you trade</div>
+            <div class="grid three">
+                <div class="card"><h3>Timeframes</h3><div id="timeframes"></div></div>
+                <div class="card"><h3>Asset classes</h3><div id="classes"></div></div>
+                <div class="card"><h3>Indicators added</h3><div id="indicators"></div></div>
+            </div>
+
+            <div class="section-title">When you trade</div>
+            <div class="grid two">
+                <div class="card"><h3>Activity by weekday and hour<span class="sub" id="tz"></span></h3><div id="heatmap"></div></div>
+                <div class="card"><h3>Last 30 days<span class="sub">charts opened per day</span></h3><div id="daily"></div></div>
+            </div>
+
+            <div class="section-title">Privacy</div>
+            <div class="card privacy">
+                <p>Insights are built only from your activity in this app and stored on this server. Nothing is shared with data providers or anyone else.</p>
+                <button class="btn danger" id="reset">Erase my activity history</button>
+            </div>
+        </main>
+        <script type="module" src="./insights.ts"></script>
+    </body>
+</html>

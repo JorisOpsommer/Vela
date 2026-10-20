@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+.git
+.github
+.env
+.env.*
+!.env.example
+.scratchpad
+app/data
+docs
+playground
+test
+*.log
+.DS_Store

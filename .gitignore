@@ -4,3 +4,6 @@ dist/
 *.log
 .env.local
 .DS_Store
+
+# Secrets (self-hosted app)
+.env

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>Account · Charts</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    </head>
+    <body class="auth-page account-page">
+        <main class="wide">
+            <header class="bar">
+                <a href="/" id="back">← Back to charts</a>
+                <span id="who"></span>
+                <button id="signout" class="link">Sign out</button>
+            </header>
+            <p class="notice" id="must-change" hidden>Choose a new password to continue.</p>
+
+            <section class="card">
+                <h2>Change password</h2>
+                <form id="password-form">
+                    <label>Current password <input name="current" type="password" autocomplete="current-password" required /></label>
+                    <label>New password <input name="next" type="password" autocomplete="new-password" minlength="12" required /></label>
+                    <label>Repeat new password <input name="repeat" type="password" autocomplete="new-password" minlength="12" required /></label>
+                    <p class="hint">At least 12 characters. Changing it signs out your other devices.</p>
+                    <p class="msg" role="status"></p>
+                    <button type="submit">Update password</button>
+                </form>
+            </section>
+
+            <section class="card" id="totp-card">
+                <h2>Two-factor sign-in</h2>
+                <div id="totp-off" hidden>
+                    <p>Protect your account with a code from an authenticator app.</p>
+                    <button id="totp-start">Set up</button>
+                    <div id="totp-setup" hidden>
+                        <p>Scan this code with your authenticator app, then enter the 6-digit code it shows.</p>
+                        <div id="totp-qr" class="qr"></div>
+                        <p class="hint">Or type this key: <code id="totp-secret"></code></p>
+                        <form id="totp-confirm">
+                            <label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required /></label>
+                            <p class="msg" role="status"></p>
+                            <button type="submit">Turn on</button>
+                        </form>
+                    </div>
+                </div>
+                <div id="totp-on" hidden>
+                    <p>Two-factor sign-in is <strong>on</strong>.</p>
+                    <form id="totp-disable">
+                        <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
+                        <p class="msg" role="status"></p>
+                        <button type="submit" class="danger">Turn off</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="card" id="admin" hidden>
+                <h2>Users</h2>
+                <table class="users">
+                    <thead><tr><th>Username</th><th>Role</th><th>2FA</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="users"></tbody>
+                </table>
+                <h3>Add a user</h3>
+                <form id="add-user" class="inline">
+                    <input name="username" placeholder="username" autocapitalize="none" spellcheck="false" required />
+                    <input name="password" type="text" placeholder="temporary password (12+)" minlength="12" required />
+                    <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
+                    <button type="submit">Add</button>
+                </form>
+                <p class="hint">New users must choose their own password at first sign-in.</p>
+                <p class="msg" id="admin-msg" role="status"></p>
+                <h3>Data sources</h3>
+                <ul id="bridges" class="bridges"></ul>
+            </section>
+        </main>
+        <script type="module" src="./account.ts"></script>
+    </body>
+</html>

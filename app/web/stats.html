@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>Data providers · Charts</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    </head>
+    <body class="gradient-page">
+        <main class="page">
+            <section class="hero">
+                <h1>Data providers</h1>
+                <p id="subtitle">Speed, reliability and rate-limit headroom of every market-data source behind your charts.</p>
+            </section>
+            <div class="grid kpis" id="kpis"></div>
+            <div class="section-title">Sources <small>budget use is the last 60 seconds against each source's per-minute limit</small></div>
+            <div class="grid three" id="providers"></div>
+            <div class="section-title">Traffic <small>last 60 minutes</small></div>
+            <div class="grid two">
+                <div class="card"><h3>Requests per minute<span class="sub">stacked by source</span></h3><div id="chart-calls"></div></div>
+                <div class="card"><h3>Response time<span class="sub">95th percentile per minute, ms</span></h3><div id="chart-latency"></div></div>
+            </div>
+            <div class="section-title">Live streams</div>
+            <div class="grid kpis" id="live"></div>
+            <div class="section-title">Recent upstream errors</div>
+            <div class="card"><div id="errors"></div></div>
+        </main>
+        <script type="module" src="./stats.ts"></script>
+    </body>
+</html>
