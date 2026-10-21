@@ -34,6 +34,14 @@ export interface SessionZones {
     extended: ReadonlyArray<readonly [number, number]>;
 }
 
+/** The latest extended-hours trade (the `extendedPrice` feature) a host pushes while
+ *  the chart shows the regular session: painted as a dotted line plus an axis chip in
+ *  the pre-market or post-market color. */
+export interface ExtendedPrice {
+    price: number;
+    session: 'pre' | 'post';
+}
+
 /** Price-axis display mode: absolute price, percent change vs a visible baseline, or
  *  values indexed to 100 at that same baseline (`index = price / baseline * 100`). */
 export type ScaleMode = 'price' | 'percent' | 'indexed';
@@ -210,6 +218,8 @@ export class SceneGraph {
     highlights: HighlightArea[] = [];
     /** Pre/post-market bands pushed by the host (`sessionZones` feature); null ⇒ no sessions. */
     sessionZones: SessionZones | null = null;
+    /** The pre/post-market price pushed by the host (`extendedPrice` feature); null ⇒ none. */
+    extendedPrice: ExtendedPrice | null = null;
     /** Draw-order key of the price candles, relative to indicator series z (see `seriesZ`).
      *  Indicators with z below this draw BEHIND the candles; at/above draw in front.
      *  Default 0 with indicators mounting at z < 0 ⇒ the price reads on top of every overlay,

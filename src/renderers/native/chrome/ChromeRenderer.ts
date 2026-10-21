@@ -17,9 +17,16 @@ import { DARK_THEME } from '../../../core/theme';
 import { tzOffsetMs } from './tz';
 import { countdownText } from './countdown';
 import { tagTextColor } from './contrast';
+import { SESSION_POST, SESSION_PRE } from '../../../core/palette';
 import { markGroupVisible } from '../../shared/marks-state';
 import { clusterTooltip, layoutMarkLane, markGlyphAt, markStackAt, type MarkLaneLayout, type PlacedGlyph } from './marks/layout';
 import { MarkIconRaster, paintMarkLane } from './marks/paint';
+
+/** A vertical span on the price axis, CSS px. */
+interface AxisSpan {
+    top: number;
+    bottom: number;
+}
 
 /** Opacity factor of a price-axis label whose tick is `major: false` (de-emphasized). */
 const MINOR_LABEL_ALPHA = 0.5;
@@ -166,7 +173,8 @@ export class ChromeRenderer {
         this.drawPriceAxes(ctx, scene, coords, theme, dataW, panes);
         this.drawMergedScaleColumns(ctx, scene, coords, dataW);
         this.drawPaneSeparators(ctx, scene, theme, fullW, panes);
-        this.drawPriceLineAndCountdown(ctx, scene, coords, theme, dataW, pricePane);
+        const lastChip = this.drawPriceLineAndCountdown(ctx, scene, coords, theme, dataW, pricePane);
+        this.drawExtendedPrice(ctx, scene, coords, theme, dataW, pricePane, lastChip);
         this.drawTimeAxis(ctx, scene, coords, theme, dataW, dataH, fullH);
         this.drawMarkLane(ctx, scene, coords, theme, dataW, dataH);
     }
@@ -358,15 +366,17 @@ export class ChromeRenderer {
      * under the label, text flushed left); a lone label or countdown is centered on the
      * price level with centered text. The countdown repaints on the renderer's second pulse
      * and disappears once the bar has closed, until the next bar arrives.
+     * Returns the vertical span the axis chips occupy (null when none paint) so later
+     * chips can step around it.
      */
-    private drawPriceLineAndCountdown(ctx: CanvasRenderingContext2D, scene: SceneGraph, coords: CoordinateSystem, theme: VelaTheme, dataW: number, pricePane: PaneNode | null): void {
+    private drawPriceLineAndCountdown(ctx: CanvasRenderingContext2D, scene: SceneGraph, coords: CoordinateSystem, theme: VelaTheme, dataW: number, pricePane: PaneNode | null): AxisSpan | null {
         const n = scene.bars.length;
         // A hidden price series takes its current-price line/label/countdown down with it —
         // as does a hidden price PANE (collapsed, or zero-height while a study pane is maximized).
-        if (!pricePane || n === 0 || scene.candlesHidden || pricePane.collapsed || pricePane.bounds.height <= 0) return;
+        if (!pricePane || n === 0 || scene.candlesHidden || pricePane.collapsed || pricePane.bounds.height <= 0) return null;
         const last = scene.bars[n - 1]!;
         const y = coords.priceToY(last.close, pricePane.scale, pricePane.bounds);
-        if (y < pricePane.bounds.top || y > pricePane.bounds.top + pricePane.bounds.height) return;
+        if (y < pricePane.bounds.top || y > pricePane.bounds.top + pricePane.bounds.height) return null;
         const color = this.priceElementColor(scene, coords, theme, last);
 
         // ── dashed line (independent of the label) ──
@@ -386,7 +396,7 @@ export class ChromeRenderer {
         const cdText = scene.showCountdown ? countdownText(last.time, coords.barInterval, Date.now()) : null;
         const showCountdown = cdText !== null;
         const showLabel = scene.showPriceLabel;
-        if (!showLabel && !showCountdown) return;
+        if (!showLabel && !showCountdown) return null;
 
         const priceText = formatAxisValue(pricePane.scale, pricePane.bounds.height, last.close, percentScaleFor(scene, pricePane), scene.priceMintick);
         const PAD = 8;
@@ -409,7 +419,7 @@ export class ChromeRenderer {
             ctx.fillText(priceText, tx, top + 8);
             ctx.fillText(cdText, tx, top + 24);
             ctx.textAlign = 'start';
-            return;
+            return { top, bottom: top + 32 };
         }
 
         // Lone label or countdown — centered on the price level, text centered.
@@ -420,6 +430,54 @@ export class ChromeRenderer {
         ctx.fillStyle = textColor;
         ctx.textAlign = 'center';
         ctx.fillText(text, x + w / 2, y);
+        ctx.textAlign = 'start';
+        return { top: y - 8, bottom: y + 8 };
+    }
+
+    /**
+     * The extended-hours price (`scene.extendedPrice`, gated by the config's
+     * `sessions.extendedPriceLine`) on the price pane, in the pre-market or post-market
+     * color: a dotted line tagged with its session name at the plot's right edge, and an
+     * axis chip with the price. The chip steps above or below the last-price chips
+     * (`occupied`) when the two levels would overlap, so both stay readable.
+     */
+    private drawExtendedPrice(ctx: CanvasRenderingContext2D, scene: SceneGraph, coords: CoordinateSystem, theme: VelaTheme, dataW: number, pricePane: PaneNode | null, occupied: AxisSpan | null): void {
+        const ext = scene.extendedPrice;
+        if (!ext || !scene.style.sessions.extendedPriceLine) return;
+        if (!pricePane || scene.candlesHidden || pricePane.collapsed || pricePane.bounds.height <= 0) return;
+        const y = coords.priceToY(ext.price, pricePane.scale, pricePane.bounds);
+        if (y < pricePane.bounds.top || y > pricePane.bounds.top + pricePane.bounds.height) return;
+        const color = ext.session === 'pre' ? SESSION_PRE : SESSION_POST;
+
+        const yy = Math.round(y) + 0.5;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        setDash(ctx, 'dotted');
+        ctx.beginPath();
+        ctx.moveTo(0, yy);
+        ctx.lineTo(dataW, yy);
+        ctx.stroke();
+        setDash(ctx, 'solid');
+
+        ctx.fillStyle = color;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(ext.session === 'pre' ? 'Pre-market' : 'Post-market', dataW - 6, yy - 2);
+        ctx.textBaseline = 'middle';
+
+        if (!scene.showPriceLabel) return;
+        let cy = y;
+        if (occupied && cy + 8 > occupied.top && cy - 8 < occupied.bottom) {
+            cy = y < (occupied.top + occupied.bottom) / 2 ? occupied.top - 9 : occupied.bottom + 9;
+        }
+        const text = formatAxisValue(pricePane.scale, pricePane.bounds.height, ext.price, percentScaleFor(scene, pricePane), scene.priceMintick);
+        const x = dataW + 1;
+        const w = ctx.measureText(text).width + 8;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, cy - 8, w, 16);
+        ctx.fillStyle = tagTextColor(color, theme.background);
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x + w / 2, cy);
         ctx.textAlign = 'start';
     }
 

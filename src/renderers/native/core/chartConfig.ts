@@ -124,11 +124,13 @@ export interface BaselineSeriesStyle {
 /** Session-zone shading (the `sessionZones` feature): the washes painted over
  *  pre-market and post-market time bands on day-split tapes, and the single
  *  extended-hours band on overnight roll tapes. Alpha belongs in the
- *  color itself. */
+ *  color itself. `extendedPriceLine` gates the pre/post-market price line a host
+ *  pushes through the `extendedPrice` feature. */
 export interface SessionShadeStyle {
     premarketColor: string;
     postmarketColor: string;
     extendedColor: string;
+    extendedPriceLine: boolean;
 }
 
 /** Default session washes — faint enough to sit behind candles and gridlines. The
@@ -205,7 +207,7 @@ export function defaultChartStyle(): ChartStyle {
             width: 2,
             baselineLevel: BASELINE_LEVEL_DEFAULT,
         },
-        sessions: { premarketColor: PREMARKET_SHADE, postmarketColor: POSTMARKET_SHADE, extendedColor: EXTENDED_SHADE },
+        sessions: { premarketColor: PREMARKET_SHADE, postmarketColor: POSTMARKET_SHADE, extendedColor: EXTENDED_SHADE, extendedPriceLine: true },
     };
 }
 
@@ -334,11 +336,13 @@ export interface ChartConfig {
     /** Session-zone shading — the washes painted over the session bands a host pushes
      *  through the `sessionZones` feature: pre/post-market on day-split tapes, the
      *  single extended-hours phase on overnight roll tapes (no bands ⇒ the colors are
-     *  dormant). */
+     *  dormant). `extendedPriceLine` shows the pre/post-market price line the host
+     *  pushes through the `extendedPrice` feature. */
     sessions: {
         premarketColor: string;
         postmarketColor: string;
         extendedColor: string;
+        extendedPriceLine: boolean;
     };
     /** Draw-order keys — what paints in front of what. The candles' own key plus one per
      *  indicator id; user drawings persist their keys in the drawings document, in the same
@@ -771,6 +775,7 @@ export function mergeConfig(base: ChartConfig, patch: unknown): ChartConfig {
             premarketColor: isColor(sessions.premarketColor) ? sessions.premarketColor : base.sessions.premarketColor,
             postmarketColor: isColor(sessions.postmarketColor) ? sessions.postmarketColor : base.sessions.postmarketColor,
             extendedColor: isColor(sessions.extendedColor) ? sessions.extendedColor : base.sessions.extendedColor,
+            extendedPriceLine: isBool(sessions.extendedPriceLine) ? sessions.extendedPriceLine : base.sessions.extendedPriceLine,
         },
         stacking: {
             candles: isNum(stacking.candles) ? stacking.candles : base.stacking.candles,

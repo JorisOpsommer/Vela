@@ -24,6 +24,14 @@ All notable changes to Vela, newest first.
   Starred indicators move to a **Favorites** group at the top of the list, in alphabetical
   order, so the ones you use most are always one click away. The stars are saved with the
   workspace, so they come back after a reload and follow your account in the self-hosted app.
+- **See the pre-market and after-hours price on a regular-hours chart.** When a stock chart
+  shows regular hours only, the latest extended-hours trade now appears as a dotted line with
+  its own price tag on the scale: amber and marked **Pre-market** before the open, blue and
+  marked **Post-market** after the close. The post-market price stays up overnight and over
+  weekends until the first pre-market trade replaces it, and the line disappears while the
+  regular session is open. Switch it off with **Pre/post-market price line** in the Trading
+  session settings. Providers whose symbols declare an extended session and serve
+  extended-hours bars get it with no extra work.
 
 ## [0.8.5]
 

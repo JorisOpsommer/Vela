@@ -17,6 +17,7 @@ import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
 import { Statusline, statuslineInkOf, type StatuslinePart } from '../widget/statusline';
 import { MarketStatusTracker } from '../widget/market-status';
+import { ExtendedPriceTracker } from '../widget/extended-price';
 import { SessionShadingTracker, parseSessionSpec } from '../widget/session-shading';
 import { timeframeMs } from '../widget/timeframe';
 import { Watermark } from '../widget/watermark';
@@ -254,6 +255,10 @@ export class ChartCell {
     private readonly marketStatus: MarketStatusTracker | null;
     /** Keeps the session shading on the symbol's real calendar (see {@link SessionShadingTracker}). */
     private readonly sessionShading = new SessionShadingTracker((zones) => this.inner?.renderer.set('sessionZones', zones));
+    /** Keeps the pre/post-market price line on the symbol's extended tape (see {@link ExtendedPriceTracker}). */
+    private readonly extendedPrice = new ExtendedPriceTracker((price) => this.inner?.renderer.set('extendedPrice', price));
+    /** The chart is replaying past bars — a live extended-hours price would contradict them. */
+    private replaying = false;
     private readonly watermark: Watermark | null;
     /** Bottom-center hover cluster, pinned to the price plot: drag handle, zoom in/out, maximize/restore, reset view. */
     private readonly cellControls: CellControls;
@@ -376,6 +381,9 @@ export class ChartCell {
         // legitimately holds the market's zone, and that must not read as a user edit
         // (which would demote the rule to that fixed zone).
         this.inner.renderer.onConfigChanged(() => {
+            // The pre/post-market line switch rides the config: a reset, a template, or a
+            // style-linked cell can turn it back on without passing through this cell's row.
+            this.refreshExtendedPrice();
             const zone = this.inner?.renderer.get('timezone');
             if (typeof zone === 'string' && normalizeTimezone(zone) !== normalizeTimezone(this.displayTimezone)) {
                 this.deps.setTimezone(normalizeTimezone(zone));
@@ -433,6 +441,8 @@ export class ChartCell {
         // The loading affordance and the watermark never share the canvas.
         this.inner.on('load:start', ({ symbol }) => {
             this.watermark?.setLoading(true);
+            // The previous symbol's extended price must not sit on the new one's bars.
+            if (symbol !== this.extendedPrice.symbol) this.extendedPrice.stop();
             // Probe the new symbol's metadata HERE rather than waiting for `market:changed`
             // (which fires only once the new bars are painted): the session toggle and the
             // exchange zone then settle while the bars load instead of a beat after them.
@@ -455,8 +465,16 @@ export class ChartCell {
         this.watermark = deps.watermark ? new Watermark(this.host, symbol ?? '', seed.timeframe ?? '60') : null;
         if (!this.watermarkOn) this.watermark?.setVisible(false);
         if (!this.replayWatermarkOn) this.watermark?.setReplayVisible(false);
-        this.inner.on('replay:start', () => this.watermark?.setReplaying(true));
-        this.inner.on('replay:end', () => this.watermark?.setReplaying(false));
+        this.inner.on('replay:start', () => {
+            this.watermark?.setReplaying(true);
+            this.replaying = true;
+            this.refreshExtendedPrice();
+        });
+        this.inner.on('replay:end', () => {
+            this.watermark?.setReplaying(false);
+            this.replaying = false;
+            this.refreshExtendedPrice();
+        });
         this.statusline = deps.statusline ? new Statusline(this.host, symbol ?? '', (sym) => this.inner?.data.symbolIcon(sym)) : null;
         this.statusline?.setMeta(seed.timeframe ?? '60', this.state.provider ?? '');
         this.statusline?.onChart(this.inner);
@@ -616,6 +634,7 @@ export class ChartCell {
         if (session === this.session) return;
         this.state.session = session;
         this.deps.onStateDirty();
+        this.refreshExtendedPrice(); // the extended tape is on the chart itself now (or no longer)
         void this.inner?.setMarket({ session });
     }
 
@@ -695,7 +714,35 @@ export class ChartCell {
                 this.pushSettingsSections(); // the Trading session group follows the symbol
             }
             this.refreshSessionShading();
+            this.refreshExtendedPrice();
         });
+    }
+
+    /** (Re)bind the pre/post-market price line: only on a regular-hours chart of a
+     *  day-split session market, outside replay, with the line switched on. */
+    private refreshExtendedPrice(): void {
+        const chart = this.inner;
+        const symbol = this.state.symbol;
+        const eligible = chart != null && symbol != null && chart.renderer.supports('extendedPrice') && !this.replaying && this.session === 'regular' && this.sessionAvailableFlag && !this.sessionOvernightFlag && this.extendedPriceLineOn();
+        // Already following this symbol: the tracker is timeframe-independent and keeps
+        // itself current across session boundaries.
+        if (eligible) {
+            if (this.extendedPrice.symbol !== symbol) this.extendedPrice.track(chart.data, symbol);
+        } else {
+            this.extendedPrice.stop();
+        }
+    }
+
+    /** The pre/post-market line switch lives in the renderer CONFIG beside the session
+     *  colors (persisted and style-synced with them). */
+    private extendedPriceLineOn(): boolean {
+        const cfg = this.inner?.renderer.getConfig() as { sessions?: Record<string, unknown> } | null | undefined;
+        return cfg?.sessions?.['extendedPriceLine'] !== false;
+    }
+
+    private setExtendedPriceLine(on: boolean): void {
+        this.inner?.renderer.applyConfig({ sessions: { extendedPriceLine: on } }); // refreshes through onConfigChanged
+        this.deps.onStateDirty();
     }
 
     /** (Re)derive the pre/post-market shading bands for this cell's market. The bands
@@ -763,6 +810,13 @@ export class ChartCell {
                       id: 'postmarket-color',
                       get: () => this.sessionShadeColor('postmarketColor'),
                       set: (v: string) => this.setSessionShadeColor('postmarketColor', v),
+                  },
+                  {
+                      kind: 'toggle' as const,
+                      label: 'Pre/post-market price line',
+                      id: 'extended-price-line',
+                      get: () => this.extendedPriceLineOn(),
+                      set: (v: boolean) => this.setExtendedPriceLine(v),
                   },
               ];
         // The `id` fields are the sections' stable visibility ids (`settings.hidden`,
@@ -1551,6 +1605,7 @@ export class ChartCell {
         this.history.destroy();
         this.marketStatus?.stop();
         this.sessionShading.stop();
+        this.extendedPrice.stop();
         this.statusline?.destroy();
         this.watermark?.destroy();
         this.inner?.destroy();

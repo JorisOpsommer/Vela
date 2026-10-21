@@ -257,6 +257,7 @@ new VelaWorkspace('#chart', {
       'trading-session.premarket-color',     //   Pre-market shading color (day-split markets)
       'trading-session.postmarket-color',    //   Post-market shading color (day-split markets)
       'trading-session.extended-color',      //   Extended-hours shading color (overnight markets)
+      'trading-session.extended-price-line', //   Pre/post-market price line toggle (day-split markets)
       'watermark',                           // the Watermark group (the two rows below)
       'watermark.visible',                   //   Symbol watermark
       'watermark.replay',                    //   Replay watermark (the line under it while replaying)

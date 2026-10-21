@@ -50,7 +50,7 @@ import { Scheduler, InvalidateLevel, repaintsData, repaintsChrome } from './core
 import { Animator, EaseSetting, easeToward } from './core/Animator';
 import { InputController } from './core/InputController';
 import { KeyboardController } from './core/KeyboardController';
-import { SceneGraph, paneLogScale, paneScaleMode, paneInvert, type PaneNode, type HighlightArea, type SessionZones, type ScaleMode } from './core/SceneGraph';
+import { SceneGraph, paneLogScale, paneScaleMode, paneInvert, type PaneNode, type HighlightArea, type SessionZones, type ExtendedPrice, type ScaleMode } from './core/SceneGraph';
 import { clampBarSpacing, defaultViewport, MIN_BAR_SPACING, MAX_BAR_SPACING, type ViewportState } from './core/ViewportState';
 import { Canvas2dBackend } from './backend/Canvas2dBackend';
 import type { IRenderBackend } from './backend/IRenderBackend';
@@ -407,7 +407,7 @@ export class NativeRenderer implements IChartRenderer {
     }
 
     readonly name = 'native';
-    readonly features: readonly string[] = ['logScale', 'currentPriceLine', 'priceLabel', 'countdown', 'upColor', 'downColor', 'glow', 'animZoom', 'animPan', 'animScroll', 'animAutoscale', 'animLiveBar', 'intro', 'zoomAnchor', 'axisDrag', 'paneResize', 'candleZOrder', 'candleVisible', 'seriesOrder', 'highlights', 'sessionZones', 'gridlines', 'axisLabels', 'scaleMode', 'invertScale', 'paneScales', 'autoScale', 'timezone', 'keyboard', 'historyChords', 'priceStyle', 'priceBaseline', 'baselinePrice', 'settings', 'attribution', 'dialogHost', 'tradeMarkers', 'marks', 'indicatorTitles', 'indicatorValues', 'crosshairOverride', 'drawingsInteractive', 'priceAxisTicks'];
+    readonly features: readonly string[] = ['logScale', 'currentPriceLine', 'priceLabel', 'countdown', 'upColor', 'downColor', 'glow', 'animZoom', 'animPan', 'animScroll', 'animAutoscale', 'animLiveBar', 'intro', 'zoomAnchor', 'axisDrag', 'paneResize', 'candleZOrder', 'candleVisible', 'seriesOrder', 'highlights', 'sessionZones', 'extendedPrice', 'gridlines', 'axisLabels', 'scaleMode', 'invertScale', 'paneScales', 'autoScale', 'timezone', 'keyboard', 'historyChords', 'priceStyle', 'priceBaseline', 'baselinePrice', 'settings', 'attribution', 'dialogHost', 'tradeMarkers', 'marks', 'indicatorTitles', 'indicatorValues', 'crosshairOverride', 'drawingsInteractive', 'priceAxisTicks'];
 
     /** Apply a render feature live — mutate the field + invalidate, no engine re-run. */
     applyFeature(key: string, value: unknown): void {
@@ -497,6 +497,11 @@ export class NativeRenderer implements IChartRenderer {
                 // extended phase); painted with the config's session colors. Null ⇒ the
                 // market has no session structure.
                 this.scene.sessionZones = sanitizeSessionZones(value);
+                break;
+            case 'extendedPrice':
+                // The latest pre/post-market trade while the chart shows regular hours;
+                // null ⇒ none (regular session open, or no extended tape).
+                this.scene.extendedPrice = sanitizeExtendedPrice(value);
                 break;
             case 'gridlines':
                 this.scene.showGrid = Boolean(value);
@@ -635,6 +640,7 @@ export class NativeRenderer implements IChartRenderer {
             case 'seriesOrder': return this.scene.indicatorZOrder();
             case 'highlights': return this.scene.highlights;
             case 'sessionZones': return this.scene.sessionZones;
+            case 'extendedPrice': return this.scene.extendedPrice;
             case 'gridlines': return this.scene.showGrid;
             case 'axisLabels': return this.scene.showAxisLabels;
             case 'scaleMode': return this.scene.scaleMode;
@@ -855,7 +861,7 @@ export class NativeRenderer implements IChartRenderer {
                 };
             })(),
             series: { style: this.scene.priceStyle, baseline: this.scene.baselineValue, spacing: this.coords.spacingScale },
-            sessions: { premarketColor: s.sessions.premarketColor, postmarketColor: s.sessions.postmarketColor, extendedColor: s.sessions.extendedColor },
+            sessions: { premarketColor: s.sessions.premarketColor, postmarketColor: s.sessions.postmarketColor, extendedColor: s.sessions.extendedColor, extendedPriceLine: s.sessions.extendedPriceLine },
         };
     }
 
@@ -987,7 +993,7 @@ export class NativeRenderer implements IChartRenderer {
             baselineLevel: next.baseline.baselineLevel,
         };
         // session shading
-        s.sessions = { premarketColor: next.sessions.premarketColor, postmarketColor: next.sessions.postmarketColor, extendedColor: next.sessions.extendedColor };
+        s.sessions = { premarketColor: next.sessions.premarketColor, postmarketColor: next.sessions.postmarketColor, extendedColor: next.sessions.extendedColor, extendedPriceLine: next.sessions.extendedPriceLine };
         // series
         this.setPriceStyle(next.series.style);
         // Re-read the active style's candle override: setPriceStyle no-ops when the style
@@ -4504,6 +4510,15 @@ function sanitizeSessionZones(value: unknown): SessionZones | null {
         return out.sort((a, b) => a[0] - b[0]);
     };
     return { pre: windows(v.pre), post: windows(v.post), extended: windows(v.extended) };
+}
+
+/** Coerce arbitrary input into a clean extended-hours price, or null (none to show). */
+function sanitizeExtendedPrice(value: unknown): ExtendedPrice | null {
+    if (value == null || typeof value !== 'object') return null;
+    const v = value as { price?: unknown; session?: unknown };
+    const price = Number(v.price);
+    if (!Number.isFinite(price) || (v.session !== 'pre' && v.session !== 'post')) return null;
+    return { price, session: v.session };
 }
 
 /** Whether a value is one of the supported price-series styles (built-ins + SDK-registered). */
