@@ -663,8 +663,32 @@ button.btn:disabled {
 }
 .sugg .actions {
     display: flex;
+    align-items: center;
     gap: 6px;
     margin-top: auto;
+}
+.sugg .added {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px 5px 6px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: rgba(12, 163, 12, 0.16);
+    border: 1px solid rgba(12, 163, 12, 0.5);
+}
+.sugg .added::before {
+    content: '✓';
+    display: inline-grid;
+    place-items: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    font-size: 11px;
+    color: #fff;
+    background: var(--good);
 }
 .because {
     display: grid;

@@ -116,7 +116,8 @@ async function addToWatchlist(symbol: string): Promise<void> {
     }
     if (!g.symbols.includes(symbol)) g.symbols.push(symbol);
     await api('/api/storage/watchlist', { method: 'PUT', text: JSON.stringify(doc) });
-    await api('/api/analytics/events', { method: 'POST', body: { events: [{ k: 'wl', v: symbol, t: Date.now() }] } });
+    // The add already succeeded; content blockers often drop analytics requests.
+    void api('/api/analytics/events', { method: 'POST', body: { events: [{ k: 'wl', v: symbol, t: Date.now() }] } }).catch(() => {});
 }
 
 function suggestionCard(s: Suggestion, i: number): HTMLElement {
@@ -147,11 +148,14 @@ function suggestionCard(s: Suggestion, i: number): HTMLElement {
         add.disabled = true;
         try {
             await addToWatchlist(s.symbol);
-            add.textContent = '✓ Added';
         } catch {
             add.disabled = false;
             add.textContent = 'Retry';
+            return;
         }
+        const added = h('span', 'added fade-in', 'Added');
+        added.setAttribute('role', 'status');
+        add.replaceWith(added);
     };
     actions.append(open, add);
     card.append(top, meta, match, reason);
