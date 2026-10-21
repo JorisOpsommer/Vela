@@ -1,6 +1,7 @@
 import './pages.css';
 import { api, loadMe } from './lib/api';
 import { mountNav } from './lib/nav';
+import { startMarketBell } from './lib/market-bell';
 import { PROVIDERS } from './lib/providers';
 import { SERIES, barList, fmt, gauge, h, sparkline, timeChart, type Sparkline } from './lib/viz';
 
@@ -273,6 +274,7 @@ async function refresh(): Promise<void> {
 async function main(): Promise<void> {
     const me = await loadMe();
     mountNav(me);
+    startMarketBell();
     await refresh();
     setInterval(() => {
         if (document.visibilityState === 'visible') void refresh().catch(() => undefined);

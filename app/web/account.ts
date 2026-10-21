@@ -1,5 +1,6 @@
 import './auth.css';
 import { api, ApiError, loadMe, logout, type Me } from './lib/api';
+import { startMarketBell } from './lib/market-bell';
 
 interface AdminUser {
     id: number;
@@ -24,6 +25,7 @@ function errText(err: unknown): string {
 
 async function main(): Promise<void> {
     const me = await loadMe();
+    startMarketBell();
     $('who').textContent = `Signed in as ${me.username}${me.role === 'admin' ? ' (admin)' : ''}`;
     $('signout').onclick = () => void logout();
     $('must-change').hidden = !me.mustChangePassword;

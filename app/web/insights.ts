@@ -1,6 +1,7 @@
 import './pages.css';
 import { api, loadMe } from './lib/api';
 import { mountNav } from './lib/nav';
+import { startMarketBell } from './lib/market-bell';
 import { symbolGlyph } from './lib/symbol-glyph';
 import { barList, donut, fmt, h, heatmap, hideTip, showTip } from './lib/viz';
 
@@ -263,6 +264,7 @@ function renderDaily(host: HTMLElement, days: Insights['last30']): void {
 async function main(): Promise<void> {
     const me = await loadMe();
     mountNav(me);
+    startMarketBell();
     $('title').textContent = `${me.username}'s trading fingerprint`;
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC';
     const load = async () => render(await api<Insights>(`/api/analytics/me?tz=${encodeURIComponent(tz)}`));

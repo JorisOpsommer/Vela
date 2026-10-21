@@ -2,10 +2,13 @@
 // replaces its earlier copy instead of stacking, so a burst of failing requests (a chart
 // loading history, several panes on one symbol) shows one toast, not ten.
 import { providerName } from './providers';
+import './toast.css';
 
 export interface ToastOptions {
     key?: string;
-    tone?: 'info' | 'warning';
+    tone?: 'info' | 'warning' | 'market-open' | 'market-close';
+    /** An emoji shown in place of the default icon. */
+    icon?: string;
     title: string;
     body: string;
     link?: { href: string; label: string };
@@ -17,6 +20,7 @@ const WARNING_ICON =
 
 interface Card {
     el: HTMLElement;
+    icon: HTMLElement;
     title: HTMLElement;
     body: HTMLElement;
     link: HTMLAnchorElement;
@@ -59,9 +63,8 @@ function arm(card: Card): void {
 function newCard(): Card {
     const root = el('div', 'toast');
     const icon = el('span', 'toast-icon');
-    icon.innerHTML = WARNING_ICON;
     const text = el('div', 'toast-text');
-    const card: Card = { el: root, title: el('div', 'toast-title'), body: el('div', 'toast-body'), link: el('a', 'toast-link') as HTMLAnchorElement, timeoutMs: 15_000, held: false };
+    const card: Card = { el: root, icon, title: el('div', 'toast-title'), body: el('div', 'toast-body'), link: el('a', 'toast-link') as HTMLAnchorElement, timeoutMs: 15_000, held: false };
     text.append(card.title, card.body, card.link);
     const close = el('button', 'toast-close', '×') as HTMLButtonElement;
     close.type = 'button';
@@ -86,6 +89,9 @@ export function toast(opts: ToastOptions): void {
     if (opts.key) live.set(opts.key, card);
     card.el.className = `toast ${opts.tone ?? 'info'}`;
     card.el.setAttribute('role', opts.tone === 'warning' ? 'alert' : 'status');
+    card.icon.className = opts.icon ? 'toast-icon emoji' : 'toast-icon';
+    if (opts.icon) card.icon.textContent = opts.icon;
+    else card.icon.innerHTML = WARNING_ICON;
     card.title.textContent = opts.title;
     card.body.textContent = opts.body;
     card.link.hidden = !opts.link;

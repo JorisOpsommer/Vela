@@ -1,0 +1,202 @@
+/* Toasts sit on <body>, outside any page theme: literal colours. Imported by toast.ts,
+ * so every page that can raise a toast carries its styles. */
+.toast-stack {
+    position: fixed;
+    right: 16px;
+    /* Clear of the chart's bottom toolbar (range buttons, timezone, session). */
+    bottom: 52px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(380px, calc(100vw - 32px));
+    pointer-events: none;
+}
+.toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 10px 12px 14px;
+    background: #1e222d;
+    border: 1px solid #2a2e39;
+    border-left: 3px solid #868a96;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    color: #d1d4dc;
+    font-size: 13px;
+    line-height: 1.45;
+    animation: toast-in 160ms ease-out;
+}
+.toast.warning {
+    border-left-color: #fab219;
+}
+.toast.warning .toast-icon {
+    color: #fab219;
+}
+.toast.leaving {
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 160ms ease-in, transform 160ms ease-in;
+}
+.toast-icon {
+    flex: none;
+    margin-top: 1px;
+    color: #868a96;
+}
+.toast-text {
+    flex: 1;
+    min-width: 0;
+}
+.toast-title {
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 2px;
+}
+.toast-link {
+    display: inline-block;
+    margin-top: 6px;
+    color: #5b9cf6;
+    font-weight: 500;
+    text-decoration: none;
+}
+.toast-link[hidden] {
+    display: none;
+}
+.toast-link:hover,
+.toast-link:focus-visible {
+    text-decoration: underline;
+}
+.toast-close {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    margin: -4px 0 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: #868a96;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+.toast-close:hover,
+.toast-close:focus-visible {
+    background: #2a2e39;
+    color: #fff;
+}
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .toast,
+    .toast.leaving {
+        animation: none;
+        transition: none;
+    }
+}
+
+/* Market open/close bells: a celebratory card — a running gradient edge, a sheen that
+ * sweeps across once it lands, and an animated emoji in place of the icon. */
+.toast.market-open,
+.toast.market-close {
+    position: relative;
+    overflow: hidden;
+    border-left-width: 0;
+    padding-left: 17px;
+}
+.toast.market-open::before,
+.toast.market-close::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, #22ab94, #ffd84d, #22ab94);
+    background-size: 100% 200%;
+    animation: toast-edge 1.6s linear infinite;
+}
+.toast.market-close::before {
+    background: linear-gradient(180deg, #7b5cff, #2f8bff, #ff4f8b, #7b5cff);
+    background-size: 100% 200%;
+}
+.toast.market-open::after,
+.toast.market-close::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.12) 50%, transparent 70%);
+    transform: translateX(-100%);
+    animation: toast-sheen 1.1s 0.25s ease-out 2;
+    pointer-events: none;
+}
+.toast-icon.emoji {
+    margin-top: 0;
+    font-size: 26px;
+    line-height: 1;
+}
+.toast.market-open .toast-icon.emoji {
+    transform-origin: 50% 15%;
+    animation: toast-ring 0.9s ease-in-out 3;
+}
+.toast.market-close .toast-icon.emoji {
+    animation: toast-bob 1.6s ease-in-out infinite;
+}
+.toast.market-open .toast-title,
+.toast.market-close .toast-title {
+    background: linear-gradient(90deg, #22ab94, #ffd84d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.toast.market-close .toast-title {
+    background-image: linear-gradient(90deg, #b49cff, #5bc8ff);
+}
+@keyframes toast-edge {
+    to {
+        background-position: 0 200%;
+    }
+}
+@keyframes toast-sheen {
+    to {
+        transform: translateX(100%);
+    }
+}
+@keyframes toast-ring {
+    0%,
+    100% {
+        transform: rotate(0);
+    }
+    20% {
+        transform: rotate(18deg);
+    }
+    40% {
+        transform: rotate(-16deg);
+    }
+    60% {
+        transform: rotate(10deg);
+    }
+    80% {
+        transform: rotate(-6deg);
+    }
+}
+@keyframes toast-bob {
+    0%,
+    100% {
+        transform: translateY(0) rotate(-6deg);
+    }
+    50% {
+        transform: translateY(-3px) rotate(6deg);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .toast.market-open::before,
+    .toast.market-close::before,
+    .toast.market-open::after,
+    .toast.market-close::after,
+    .toast-icon.emoji {
+        animation: none !important;
+    }
+}

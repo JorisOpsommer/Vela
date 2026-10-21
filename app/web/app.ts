@@ -11,6 +11,7 @@ import { defaultWorkspaceState } from './defaults';
 import { startTracker } from './lib/tracker';
 import { showProviderLimit } from './lib/toast';
 import { startDataNotices } from './lib/data-notices';
+import { startMarketBell } from './lib/market-bell';
 import './app.css';
 
 const WORKSPACE_KEY = 'workspace';
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
         location.href = '/account';
         return;
     }
+    startMarketBell();
     const storage = await createServerStorage([WORKSPACE_KEY, 'watchlist']);
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC';
     // First visit: a starter layout with the common indicators. Seeded, not saved —
