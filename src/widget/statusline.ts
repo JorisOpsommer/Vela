@@ -8,7 +8,15 @@ import { Tooltip } from '../ui/components/tooltip';
 import { CalloutBubble } from '../ui/components/callout-bubble';
 import { Menu } from '../ui/components/menu';
 import { segmentVisibility, statuslineMenuItems, STATUSLINE_LADDER, readoutCells, type StatuslinePart, type StatuslineLayout } from './statusline-model';
-import { SESSION_PRE, SESSION_POST, SESSION_OFF } from '../core/palette';
+import { SESSION_PRE } from '../core/palette';
+import { Popover, isPopoverOpen } from '../ui/components/popover';
+import { Drawer } from '../ui/components/drawer';
+import { floatingLayerHost } from '../ui/tokens';
+import { SecondClock, type WallClock } from '../core/util/wall-clock';
+import type { Unsubscribe } from '../core/util/types';
+import { deriveMarketStatus, type MarketSchedule } from './market-status';
+import { MARKET_STATUS_LABELS as MARKET_LABELS, marketClock, marketHoursCard } from './market-hours';
+import { MARKET_INKS, renderMarketHours } from './market-hours-view';
 import { iconAt } from '../core/icons';
 import { fmtPrice, fmtChange, fmtChangePct, decimalsFor } from './format';
 import { timeframeLabel } from './timeframe';
@@ -105,6 +113,41 @@ const CSS = `
 .vela-statusline .vela-sl-market { align-self: center; display: inline-flex; }
 .vela-statusline .vela-sl-market > [hidden] { display: none !important; }
 .vela-statusline .vela-sl-replay-badge, .vela-statusline .vela-sl-replay-badge svg { display: block; width: 16px; height: 16px; }
+/* Market clock — the countdown to the next session edge, set by setMarketSchedule. On a
+ * desktop it is a tag beside the badge ("Opens in 1h 48m") and hovering either opens the
+ * hours card; on a phone badge and time merge into one tappable pill, the badge inside a
+ * ring that fills up through the current stretch, and a tap opens the hours sheet.
+ * --vela-sl-ink is the status ink, set per status in dressBadge. */
+.vela-statusline .vela-sl-market { position: relative; align-items: center; gap: var(--vela-space-2); }
+.vela-statusline .vela-sl-market.vela-sl-has-clock { cursor: pointer; }
+.vela-statusline .vela-sl-market:focus-visible { outline: 2px solid var(--vela-focus); outline-offset: 2px; border-radius: 999px; }
+.vela-statusline .vela-sl-countdown {
+    display: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vela-sl-ink) 15%, transparent);
+    color: color-mix(in srgb, var(--vela-sl-ink) 75%, var(--vela-fg-bright));
+    font-size: var(--vela-font-size-sm);
+    font-weight: 600;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.vela-statusline .vela-sl-has-clock .vela-sl-countdown { display: inline-block; }
+.vela-statusline .vela-sl-cd-short, .vela-statusline .vela-sl-ring { display: none; }
+[data-layout='mobile'] .vela-statusline .vela-sl-market.vela-sl-has-clock {
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px 0 4px;
+    margin: -3px 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vela-sl-ink) 15%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vela-sl-ink) 32%, transparent);
+}
+[data-layout='mobile'] .vela-statusline .vela-sl-has-clock .vela-sl-ring { display: block; position: absolute; left: 2px; top: 2px; }
+[data-layout='mobile'] .vela-statusline .vela-sl-has-clock .vela-sl-countdown { padding: 0; background: none; font-size: var(--vela-font-size-md); font-weight: 700; }
+[data-layout='mobile'] .vela-statusline .vela-sl-has-clock .vela-sl-cd-long { display: none; }
+[data-layout='mobile'] .vela-statusline .vela-sl-has-clock .vela-sl-cd-short { display: inline; }
 /* Delayed-data tag — the symbol's source publishes late (SymbolInfo delay_minutes).
  * Information, not a control: the pre-market amber on a 15% wash, clock + "Delayed 10m". */
 .vela-statusline .vela-sl-delay {
@@ -191,14 +234,6 @@ export type StatuslineReadout = 'ohlc' | 'value';
  *  tapes wear the single 'extended' state — they have no pre/post split. */
 export type MarketStatus = 'open' | 'pre' | 'post' | 'extended' | 'closed' | 'holiday';
 
-const MARKET_LABELS: Record<MarketStatus, string> = {
-    open: 'Market Open',
-    pre: 'Pre-Market',
-    post: 'Post-Market',
-    extended: 'Extended Hours',
-    closed: 'Market Closed',
-    holiday: 'Market Holiday',
-};
 const REPLAY_LABEL = 'Replay Mode';
 /**
  * The replay badge: the circle and its glyph (two left-pointing triangles) in ONE drawing —
@@ -212,17 +247,17 @@ const REPLAY_BADGE_SVG =
     '<path d="M11.7 4.75v6.5L7.2 8zM7.2 4.75v6.5L2.7 8z" style="fill: var(--vela-selected-fg); stroke: var(--vela-selected-fg); stroke-width: 0.8; stroke-linejoin: round"/>' +
     '</svg>';
 
-/** Session ink: open wears the theme's up color; the other sessions are meaning
- *  constants from the palette (amber pre, sky post and extended, gray closed/holiday).
- *  The badge circle is the same ink at a 20% wash. */
-const MARKET_INKS: Record<MarketStatus, string> = {
-    open: 'var(--vela-up)',
-    pre: SESSION_PRE,
-    post: SESSION_POST,
-    extended: SESSION_POST,
-    closed: SESSION_OFF,
-    holiday: SESSION_OFF,
-};
+/** The progress ring the phone pill draws around the badge (r = 8.5 in a 20px box). */
+const RING_C = 2 * Math.PI * 8.5;
+const RING_SVG =
+    '<svg class="vela-sl-ring" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
+    '<circle cx="10" cy="10" r="8.5" fill="none" stroke-width="2" style="stroke: color-mix(in srgb, var(--vela-sl-ink) 30%, transparent)"/>' +
+    `<circle class="vela-sl-ring-fill" cx="10" cy="10" r="8.5" fill="none" stroke-width="2" stroke-linecap="round" transform="rotate(-90 10 10)" stroke-dasharray="0 ${RING_C.toFixed(2)}" style="stroke: var(--vela-sl-ink)"/>` +
+    '</svg>';
+/** Hover intent: the card opens once the pointer rests on the badge this long (the
+ *  crosshair sweeps across the chip all the time), and closes this long after it leaves. */
+const CARD_ENTER_MS = 300;
+const CARD_LEAVE_MS = 200;
 
 /**
  * The active price style's value readout for the status line, read live from the
@@ -283,6 +318,21 @@ export interface StatuslineMenuHooks {
     setChartVisible: (visible: boolean) => void;
 }
 
+/** The market clock's surroundings — all optional; see {@link Statusline.attachMarketClock}. */
+export interface MarketClockHooks {
+    /** The second pulse the countdown ticks on — share the bottom bar's so both turn the
+     *  minute together. Absent: a private one, running only while a countdown shows. */
+    clock?: WallClock;
+    /** The zone the countdown and the hours card write times in — the chart's display
+     *  zone. Absent: the browser's. */
+    timezone?: () => string;
+    /** Where the phone sheet mounts — the workspace root, so it spans the whole screen
+     *  rather than one cell of a grid. Absent: the nearest kit host. */
+    sheetHost?: HTMLElement;
+    /** The phone sheet opened or closed (the host scopes its keyboard meanwhile). */
+    onSheetOpenChange?: (open: boolean) => void;
+}
+
 export class Statusline {
     readonly el: HTMLElement;
     private readonly ohlcEl: HTMLElement;
@@ -294,7 +344,28 @@ export class Statusline {
     private readonly marketBubble: CalloutBubble;
     /** The replay face — see {@link REPLAY_BADGE_SVG}. */
     private readonly replayBadge: HTMLElement;
-    private marketTip!: Tooltip;
+    /** The badge's hover label — dropped while the market clock's hours card takes over
+     *  the hover (see {@link syncMarketTip}). */
+    private marketTip: Tooltip | null = null;
+    /** The countdown beside the badge: its desktop and phone wordings, and the ring. */
+    private readonly countdownEl: HTMLElement;
+    private readonly countdownLong: HTMLElement;
+    private readonly countdownShort: HTMLElement;
+    private readonly ringFill: SVGCircleElement;
+    /** The symbol's resolved calendar; null for continuous markets (no clock at all). */
+    private schedule: MarketSchedule | null = null;
+    private clockHooks: MarketClockHooks = {};
+    private ownClock: SecondClock | null = null;
+    private unsubClock: Unsubscribe | null = null;
+    /** The minute the clock last rendered — the countdown only changes per minute. */
+    private clockMinute = -1;
+    /** The countdown's width key (digits normalized): re-fit only when it changes. */
+    private clockKey = '';
+    /** The desktop hours card (built on first show) and the phone sheet. */
+    private card: Popover | null = null;
+    private cardEnter: ReturnType<typeof setTimeout> | null = null;
+    private cardLeave: ReturnType<typeof setTimeout> | null = null;
+    private sheet: Drawer | null = null;
     /** The delayed-data tag — shown while the symbol's data runs late (see {@link setDelay}). */
     private readonly delayEl: HTMLElement;
     private delayTip!: Tooltip;
@@ -379,7 +450,20 @@ export class Statusline {
         // One slot, two faces: the market bubble, or the replay badge while replaying.
         this.marketEl = doc.createElement('span');
         this.marketEl.className = 'vela-sl-market';
-        this.marketEl.append(this.marketBubble.el, this.replayBadge);
+        this.countdownLong = doc.createElement('span');
+        this.countdownLong.className = 'vela-sl-cd-long';
+        this.countdownShort = doc.createElement('span');
+        this.countdownShort.className = 'vela-sl-cd-short';
+        this.countdownEl = doc.createElement('span');
+        this.countdownEl.className = 'vela-sl-countdown';
+        this.countdownEl.append(this.countdownLong, this.countdownShort);
+        this.marketEl.innerHTML = RING_SVG;
+        this.ringFill = this.marketEl.querySelector<SVGCircleElement>('.vela-sl-ring-fill')!;
+        this.marketEl.append(this.marketBubble.el, this.replayBadge, this.countdownEl);
+        this.marketEl.addEventListener('pointerenter', this.onMarketEnter);
+        this.marketEl.addEventListener('pointerleave', this.onMarketLeave);
+        this.marketEl.addEventListener('click', this.onMarketClick);
+        this.marketEl.addEventListener('keydown', this.onMarketKey);
         this.delayEl = doc.createElement('span');
         this.delayEl.className = 'vela-sl-delay';
         this.delayEl.style.color = SESSION_PRE;
@@ -418,7 +502,7 @@ export class Statusline {
         doc.fonts?.addEventListener('loadingdone', this.onFontsLoaded);
         // The tooltips portal to the nearest `.vela-ui` ancestor for theme tokens — resolve
         // them AFTER the statusline is in the DOM. The badge's content follows setMarketStatus.
-        this.marketTip = new Tooltip(this.marketEl, { content: MARKET_LABELS.open, placement: 'bottom' });
+        this.syncMarketTip();
         this.eyeTip = new Tooltip(this.eyeEl, { content: 'Show chart', placement: 'bottom' });
         this.delayTip = new Tooltip(this.delayEl, { content: '', placement: 'bottom' });
         this.setMarketStatus('open'); // crypto trades continuously (no session model yet)
@@ -454,6 +538,7 @@ export class Statusline {
         this.symbolEl.style.display = seg.symbol ? '' : 'none';
         this.metaEl.style.display = seg.meta ? '' : 'none';
         this.marketEl.style.display = seg.market ? '' : 'none';
+        this.countdownEl.style.display = '';
         this.delayEl.style.display = this.delayShown(seg.market) ? '' : 'none';
         this.ohlcEl.style.display = seg.ohlc ? '' : 'none';
         this.changeEl.style.display = seg.change ? '' : 'none';
@@ -493,6 +578,7 @@ export class Statusline {
             [this.valuesRow, hasValues],
             [this.metaEl, seg.meta],
             [this.delayEl, this.delayShown(seg.market)],
+            [this.countdownEl, seg.market && this.counting()],
             [this.marketEl, seg.market],
         ];
         for (const [el, shown] of order) {
@@ -532,6 +618,28 @@ export class Statusline {
         this.dressBadge();
     }
 
+    /** Wire the market clock's surroundings: the shared second pulse, the display zone,
+     *  and where the phone sheet mounts. Call once; later calls swap the hooks. */
+    attachMarketClock(hooks: MarketClockHooks): void {
+        this.clockHooks = hooks;
+        this.unsubClock?.();
+        this.unsubClock = null;
+        this.syncClockTicking();
+    }
+
+    /**
+     * The symbol's resolved calendar, or null for a continuous market (no clock). With
+     * one, the badge follows the status on the clock itself — it flips the minute an edge
+     * passes — and a countdown to the next session edge rides beside it. Hovering or
+     * clicking it opens the hours card on a desktop; tapping it opens the hours sheet on a
+     * phone. Both hide during a replay, where "now" is a past bar.
+     */
+    setMarketSchedule(schedule: MarketSchedule | null): void {
+        this.schedule = schedule;
+        this.syncClockTicking();
+        this.renderClock(Date.now());
+    }
+
     /** The chart entered or left a bar replay: the badge shows the replay mode meanwhile
      *  (the session state of a past bar says nothing about the market now). */
     setReplaying(replaying: boolean): void {
@@ -539,6 +647,173 @@ export class Statusline {
         this.replaying = replaying;
         this.dressBadge();
         this.syncParts();
+        this.renderClock(Date.now());
+    }
+
+    private displayZone(): string {
+        return this.clockHooks.timezone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    }
+
+    private syncClockTicking(): void {
+        if (this.schedule && !this.unsubClock) {
+            const clock = this.clockHooks.clock ?? (this.ownClock ??= new SecondClock());
+            this.unsubClock = clock.onTick((now) => {
+                if (Math.floor(now / 60_000) !== this.clockMinute) this.renderClock(now);
+            });
+        } else if (!this.schedule && this.unsubClock) {
+            this.unsubClock();
+            this.unsubClock = null;
+        }
+    }
+
+    /** Whether the countdown is out (a schedule with an event ahead, and no replay). */
+    private counting(): boolean {
+        return this.marketEl.classList.contains('vela-sl-has-clock');
+    }
+
+    private isPhone(): boolean {
+        return this.host.closest('[data-layout]')?.getAttribute('data-layout') === 'mobile';
+    }
+
+    /** Re-derive the badge, the countdown and any open card/sheet at `now`. */
+    private renderClock(now: number): void {
+        this.clockMinute = Math.floor(now / 60_000);
+        const s = this.schedule;
+        if (s) {
+            const status = deriveMarketStatus(now, s.windows, s.tz, s.overnight);
+            if (status !== this.marketStatus) this.setMarketStatus(status);
+        }
+        const clock = s && !this.replaying ? marketClock(s, now, this.displayZone()) : null;
+        this.marketEl.classList.toggle('vela-sl-has-clock', clock != null);
+        if (clock) {
+            this.countdownLong.textContent = clock.text;
+            this.countdownShort.textContent = clock.short;
+            this.ringFill.setAttribute('stroke-dasharray', `${((clock.progress ?? 0) * RING_C).toFixed(2)} ${RING_C.toFixed(2)}`);
+            this.marketEl.setAttribute('role', 'button');
+            this.marketEl.tabIndex = 0;
+            this.marketEl.setAttribute('aria-haspopup', 'dialog');
+            this.marketEl.setAttribute('aria-label', `${clock.label}. Show market hours`);
+        } else {
+            this.countdownLong.textContent = '';
+            this.countdownShort.textContent = '';
+            for (const a of ['role', 'tabindex', 'aria-haspopup', 'aria-label']) this.marketEl.removeAttribute(a);
+            this.card?.hide();
+            this.sheet?.hide();
+        }
+        this.syncMarketTip();
+        const key = (clock?.text ?? '').replace(/\d/g, '0');
+        if (key !== this.clockKey) {
+            this.clockKey = key;
+            this.fit();
+        }
+        if (clock && this.card?.open) this.fillCard(now);
+        if (clock && this.sheet?.open) this.fillSheet(now);
+    }
+
+    /** The hover label stays for a badge without a clock (and for the replay badge); with
+     *  a clock the hours card takes the hover, and two layers must not stack. */
+    private syncMarketTip(): void {
+        const want = !this.counting();
+        if (want && !this.marketTip) {
+            this.marketTip = new Tooltip(this.marketEl, { content: this.replaying ? REPLAY_LABEL : MARKET_LABELS[this.marketStatus], placement: 'bottom' });
+        } else if (!want && this.marketTip) {
+            this.marketTip.destroy();
+            this.marketTip = null;
+            this.marketEl.removeAttribute('aria-describedby');
+        }
+    }
+
+    private readonly onMarketEnter = (e: PointerEvent): void => {
+        if (e.pointerType !== 'mouse' || !this.counting() || this.isPhone()) return;
+        this.cancelCardLeave();
+        if (this.card?.open || this.cardEnter != null) return;
+        this.cardEnter = setTimeout(() => {
+            this.cardEnter = null;
+            // A hover never steals the screen from another open popover (a menu, a picker).
+            if (this.counting() && !isPopoverOpen()) this.showCard();
+        }, CARD_ENTER_MS);
+    };
+
+    private readonly onMarketLeave = (e: PointerEvent): void => {
+        if (e.pointerType !== 'mouse') return;
+        this.cancelCardEnter();
+        this.scheduleCardLeave();
+    };
+
+    private readonly onMarketClick = (e: MouseEvent): void => {
+        if (!this.counting()) return;
+        e.stopPropagation();
+        if (this.isPhone()) this.openSheet();
+        else this.showCard();
+    };
+
+    private readonly onMarketKey = (e: KeyboardEvent): void => {
+        if (!this.counting() || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.isPhone()) this.openSheet();
+        else if (this.card?.open) this.card.hide();
+        else this.showCard();
+    };
+
+    private showCard(): void {
+        if (!this.card) {
+            // Built on first use, when the status line sits in its themed host.
+            this.card = new Popover({ trigger: this.marketEl, gap: 6, fadeMs: 120, className: 'vela-sl-hours' });
+            this.card.el.setAttribute('role', 'dialog');
+            this.card.el.setAttribute('aria-label', 'Market hours');
+            this.card.el.addEventListener('pointerenter', () => this.cancelCardLeave());
+            this.card.el.addEventListener('pointerleave', (e) => {
+                if (e.pointerType === 'mouse') this.scheduleCardLeave();
+            });
+        }
+        if (!this.fillCard(Date.now())) return;
+        this.card.show();
+    }
+
+    private fillCard(now: number): boolean {
+        const model = this.schedule && this.card ? marketHoursCard(this.schedule, now, this.displayZone()) : null;
+        if (!model || !this.card) {
+            this.card?.hide();
+            return false;
+        }
+        this.card.el.replaceChildren(renderMarketHours(this.el.ownerDocument, model, 'card'));
+        return true;
+    }
+
+    private scheduleCardLeave(): void {
+        this.cancelCardLeave();
+        this.cardLeave = setTimeout(() => {
+            this.cardLeave = null;
+            this.card?.hide();
+        }, CARD_LEAVE_MS);
+    }
+
+    private cancelCardLeave(): void {
+        if (this.cardLeave != null) clearTimeout(this.cardLeave);
+        this.cardLeave = null;
+    }
+
+    private cancelCardEnter(): void {
+        if (this.cardEnter != null) clearTimeout(this.cardEnter);
+        this.cardEnter = null;
+    }
+
+    private openSheet(): void {
+        const doc = this.el.ownerDocument;
+        this.sheet ??= new Drawer({ host: this.clockHooks.sheetHost ?? floatingLayerHost(this.el, doc.body), onOpenChange: (open) => this.clockHooks.onSheetOpenChange?.(open) });
+        if (!this.fillSheet(Date.now())) return;
+        this.sheet.show();
+    }
+
+    private fillSheet(now: number): boolean {
+        const model = this.schedule && this.sheet ? marketHoursCard(this.schedule, now, this.displayZone()) : null;
+        if (!model || !this.sheet) {
+            this.sheet?.hide();
+            return false;
+        }
+        this.sheet.body.replaceChildren(renderMarketHours(this.el.ownerDocument, model, 'sheet'));
+        return true;
     }
 
     /**
@@ -570,19 +845,20 @@ export class Statusline {
         this.replayBadge.hidden = !this.replaying;
         if (this.replaying) {
             this.marketEl.dataset.status = 'replay';
-            this.marketTip.setContent(REPLAY_LABEL);
+            this.marketTip?.setContent(REPLAY_LABEL);
             return;
         }
         const status = this.marketStatus;
         this.marketEl.dataset.status = status;
         const ink = MARKET_INKS[status];
+        this.marketEl.style.setProperty('--vela-sl-ink', ink);
         this.marketBubble.set({
             icon: `market-${status}`,
             background: `color-mix(in srgb, ${ink} 20%, transparent)`,
             color: ink,
             label: MARKET_LABELS[status],
         });
-        this.marketTip.setContent(MARKET_LABELS[status]);
+        this.marketTip?.setContent(MARKET_LABELS[status]);
     }
 
     /** Show/hide one part — the settings dialog's Status line tab and the right-click
@@ -691,7 +967,16 @@ export class Statusline {
         this.el.removeEventListener('contextmenu', this.onContextMenu);
         this.menu?.destroy();
         this.menu = null;
-        this.marketTip.destroy();
+        this.marketTip?.destroy();
+        this.unsubClock?.();
+        this.unsubClock = null;
+        this.cancelCardEnter();
+        this.cancelCardLeave();
+        this.card?.destroy();
+        // Torn down while open, the sheet never reports its close — release the host's
+        // keyboard scope here.
+        if (this.sheet?.open) this.clockHooks.onSheetOpenChange?.(false);
+        this.sheet?.destroy();
         this.eyeTip.destroy();
         this.delayTip.destroy();
         this.marketBubble.destroy();

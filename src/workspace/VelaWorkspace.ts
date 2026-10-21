@@ -1721,6 +1721,8 @@ export class VelaWorkspace {
                 onStateDirty: () => this.markStateDirty(),
                 manifestSettled: () => this.manifestSettled,
                 toast: (message, kind, durationMs) => this.toastHost.show(message, kind, durationMs),
+                clock: this.clock,
+                dialogOpenChange: (open) => this.trackDialog(open),
             });
             cell.host.style.gridArea = perCell[slot.id]?.gridArea ?? '';
             this.cellsById.set(id, cell);

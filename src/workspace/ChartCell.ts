@@ -17,6 +17,7 @@ import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
 import { Statusline, statuslineInkOf, type StatuslinePart } from '../widget/statusline';
 import { MarketStatusTracker } from '../widget/market-status';
+import type { WallClock } from '../core/util/wall-clock';
 import { ExtendedPriceTracker } from '../widget/extended-price';
 import { SessionShadingTracker, parseSessionSpec } from '../widget/session-shading';
 import { timeframeMs } from '../widget/timeframe';
@@ -185,6 +186,12 @@ export interface CellDeps {
     onStateDirty(): void;
     /** The shell's toast surface (unresolved-symbol notices land there). */
     toast(message: string, kind: 'info' | 'success' | 'error', durationMs?: number): void;
+    /** The workspace's second pulse (the bottom-bar clock) — the status line's market
+     *  countdown turns the minute on it. */
+    clock?: WallClock;
+    /** A modal surface the cell opens itself (the phone market-hours sheet) opened or
+     *  closed — the workspace scopes its keyboard meanwhile. */
+    dialogOpenChange?(open: boolean): void;
 }
 
 /** One live manifest/external instance and, when it deviates from declaration
@@ -485,7 +492,18 @@ export class ChartCell {
             chartVisible: () => this.inner?.renderer.get('candleVisible') !== false,
             setChartVisible: (visible) => this.inner?.renderer.set('candleVisible', visible),
         });
-        this.marketStatus = this.statusline ? new MarketStatusTracker((s) => this.statusline?.setMarketStatus(s)) : null;
+        this.statusline?.attachMarketClock({
+            clock: deps.clock,
+            timezone: () => this.displayTimezone,
+            sheetHost: deps.dialogHost,
+            onSheetOpenChange: (open) => deps.dialogOpenChange?.(open),
+        });
+        this.marketStatus = this.statusline
+            ? new MarketStatusTracker((status, schedule) => {
+                  this.statusline?.setMarketStatus(status);
+                  this.statusline?.setMarketSchedule(schedule);
+              })
+            : null;
         // The venue chip above is provisional (persisted/typed prefix): once the shared
         // feed's indexes settle, re-derive it from the DATA — a cell restored as
         // `edgx:AAPL` must come back up reading NASDAQ. The avatar re-resolves too: the

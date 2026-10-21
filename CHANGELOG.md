@@ -32,6 +32,16 @@ All notable changes to Vela, newest first.
   regular session is open. Switch it off with **Pre/post-market price line** in the Trading
   session settings. Providers whose symbols declare an extended session and serve
   extended-hours bars get it with no extra work.
+- **Know when the market opens, in your own time.** For symbols that trade in sessions, the
+  status line now shows a countdown beside the market badge, such as **Opens in 1h 48m**,
+  **Closes in 3h 12m** or **Post-market ends in 2h 05m**, and over a weekend or holiday the
+  day and time of the next open. Hover or click it for the day's pre-market, regular and
+  post-market hours in your time zone, next to the exchange's own clock, plus what's coming
+  up: market holidays, early closes, and the weeks when the open moves because your clocks
+  and the exchange's change on different dates. On a phone the badge and countdown become
+  one pill with a ring that fills through the session; tap it for the same hours in a
+  sheet. Providers that offer `getCalendar` get it with no extra work, and continuous
+  markets such as crypto show no countdown.
 
 ## [0.8.5]
 
