@@ -403,7 +403,7 @@ export class TimeframeWheel {
         this.markSelected();
         const max = this.list.length - 1;
         const near = Math.min(max, Math.max(0, Math.round(this.pos)));
-        const target = this.rolling ? this.pos : near + (this.pos - near) * 0.4;
+        const target = this.rolling ? this.pos : near + (this.pos - near) * 0.32;
         this.shown = dt > 0 ? this.shown + (target - this.shown) * Math.min(1, dt * 22) : target;
         this.paint();
         this.raf = requestAnimationFrame((n) => this.frame(n));
