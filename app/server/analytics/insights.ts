@@ -132,6 +132,8 @@ export function buildInsights(opts: {
     const interest = new Map<string, number>();
     const heat: number[][] = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
     const days = new Map<string, { opens: number; minutes: number }>();
+    const today = localDate(tz, now);
+    const openedToday = new Map<string, number>();
     let totalOpens = 0;
     let totalMinutes = 0;
 
@@ -144,6 +146,7 @@ export function buildInsights(opts: {
         switch (r.kind) {
             case 'open':
                 totalOpens += 1;
+                if (day === today) add(openedToday, r.value, 1);
                 add(opens, r.value, 1);
                 add(interest, r.value, decay);
                 if (r.extra) add(tfUse, r.extra, 1);
@@ -206,7 +209,6 @@ export function buildInsights(opts: {
         longest = Math.max(longest, run);
         prev = d;
     }
-    const today = localDate(tz, now);
     const yesterday = localDate(tz, now - DAY_MS);
     let current = 0;
     if (days.has(today) || days.has(yesterday)) {
@@ -230,15 +232,19 @@ export function buildInsights(opts: {
     const exclude = new Set([...opens.keys(), ...opts.watchlist]);
     // Ask for extra, then drop anything no longer listed (the map is hand-maintained).
     const suggestions: Suggestion[] = opts.related.suggest(interest, exclude, 18, opts.random).filter((s) => opts.catalog.isListed(s.symbol)).slice(0, 12);
-    const topInterest = [...interest.entries()].filter(([s]) => opts.related.get(s)).sort((a, b) => b[1] - a[1]).slice(0, 3);
-    const because = topInterest.map(([sym]) => ({
+    const peersOf = (sym: string) => (opts.related.get(sym) ? opts.related.peersOf(sym).filter((p) => !exclude.has(p) && opts.catalog.isListed(p)) : []);
+    // A symbol with nothing left to show would be an empty row.
+    const withPeers = (syms: string[]) => syms.filter((sym) => peersOf(sym).length > 0);
+    // Two of today's charts; topped up with one all-time favorite when today has fewer.
+    const anchors = pick(withPeers([...openedToday.entries()].sort((a, b) => b[1] - a[1]).map(([sym]) => sym)), 2, opts.random);
+    if (anchors.length < 2) {
+        const favorites = withPeers(topSymbols.map((t) => t.symbol)).filter((sym) => !anchors.includes(sym));
+        anchors.push(...pick(favorites.slice(0, 5), 1, opts.random));
+    }
+    const because = anchors.map((sym) => ({
         symbol: sym,
         name: opts.related.get(sym)!.n,
-        peers: sample(
-            opts.related.peersOf(sym).filter((p) => !exclude.has(p) && opts.catalog.isListed(p)),
-            5,
-            opts.random,
-        ).map((p) => ({ symbol: p, name: opts.related.get(p)!.n })),
+        peers: pick(peersOf(sym).slice(0, 8), 5, opts.random).map((p) => ({ symbol: p, name: opts.related.get(p)!.n })),
     }));
 
     const tfTop = countTop(tfUse, 8).map((r) => ({ ...r, label: tfLabel(r.key) }));
@@ -270,12 +276,12 @@ export function buildInsights(opts: {
     };
 }
 
-/** `n` items drawn from near the head of the list, in their original order. */
-function sample<T>(items: T[], n: number, random?: () => number): T[] {
-    const head = items.slice(0, n + 3);
-    if (!random) return head.slice(0, n);
-    while (head.length > n) head.splice(Math.floor(random() * head.length), 1);
-    return head;
+/** `n` items drawn at random, kept in their original order; the first `n` without a random source. */
+function pick<T>(items: T[], n: number, random?: () => number): T[] {
+    if (!random) return items.slice(0, n);
+    const out = [...items];
+    while (out.length > n) out.splice(Math.floor(random() * out.length), 1);
+    return out;
 }
 
 function share(map: Map<string, number>, keys: string[]): number {

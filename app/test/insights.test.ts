@@ -159,6 +159,54 @@ describe('analytics events and insights', () => {
         expect(new Set(runs.map((r) => r.peers)).size).toBeGreaterThan(1);
     });
 
+    describe('because you watch', () => {
+        const now = Date.UTC(2026, 9, 20, 15, 0, 0);
+        const catalog = new Catalog({ groups: [], instruments: {} }, { alpaca: true, finnhub: false });
+        const history = [...Array<string>(10).fill('AMZN'), ...Array<string>(6).fill('BRENT')].map((v, i) => ({ k: 'open', v, t: now - 3 * 86_400_000 + i }));
+        const today = (symbols: string[]) => symbols.map((v, i) => ({ k: 'open', v, t: now - 3_600_000 + i }));
+
+        async function anchorsFor(events: unknown[]) {
+            const db = openDbAt(':memory:');
+            const auth = new AuthService(db, new SecretBox('k'.repeat(40)), 86_400_000);
+            const u = await auth.createUser('carol', 'correct horse battery staple', 'user');
+            recordEvents(db, u.id, events, now);
+            return (random?: () => number) => buildInsights({ db, userId: u.id, tz: 'Etc/UTC', catalog, related, watchlist: [], now, random }).because.map((b) => b.symbol);
+        }
+
+        it('picks two random charts opened today, not the all-time favorites', async () => {
+            const anchors = await anchorsFor([...history, ...today(['NVDA', 'XOM', 'AAPL'])]);
+            const pairs = new Set<string>();
+            for (let seed = 1; seed <= 10; seed++) {
+                const a = anchors(seeded(seed));
+                expect(a).toHaveLength(2);
+                for (const sym of a) expect(['NVDA', 'XOM', 'AAPL']).toContain(sym);
+                pairs.add([...a].sort().join());
+            }
+            expect(pairs.size).toBeGreaterThan(1);
+        });
+
+        it('adds one all-time favorite when only one chart was opened today', async () => {
+            const anchors = await anchorsFor([...history, ...today(['NVDA'])]);
+            for (let seed = 1; seed <= 5; seed++) {
+                const a = anchors(seeded(seed));
+                expect(a).toHaveLength(2);
+                expect(a[0]).toBe('NVDA');
+                expect(['AMZN', 'BRENT']).toContain(a[1]);
+            }
+        });
+
+        it('shows one random all-time favorite when nothing was opened today', async () => {
+            const anchors = await anchorsFor(history);
+            const seen = new Set<string>();
+            for (let seed = 1; seed <= 10; seed++) {
+                const a = anchors(seeded(seed));
+                expect(a).toHaveLength(1);
+                seen.add(a[0]!);
+            }
+            expect([...seen].sort()).toEqual(['AMZN', 'BRENT']);
+        });
+    });
+
     it('labels indicators readably', () => {
         expect(indicatorLabel('moving-average')).toBe('Moving Average');
         expect(indicatorLabel('bollinger-bands')).toBe('Bollinger Bands');
