@@ -12,6 +12,12 @@
       "runtimeExecutable": "/private/tmp/claude-502/-Users-303705-Documents-dev-joris-Vela/6ab879a0-9959-4215-805f-eb8c9fae7080/scratchpad/run-vela.sh",
       "runtimeArgs": [],
       "port": 8092
+    },
+    {
+      "name": "vela-app-marketclock",
+      "runtimeExecutable": "/private/tmp/claude-502/-Users-303705-Documents-dev-joris-Vela/fcdfe00a-fb48-4513-a353-f82988e633f0/scratchpad/run-vela.sh",
+      "runtimeArgs": [],
+      "port": 8094
     }
   ]
 }
