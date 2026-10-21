@@ -19,6 +19,12 @@ const CSS = `
     /* No gutter: the V is the wordmark's first letter, and the letters' viewBox starts
        where the V's ends, so the kit's own letter spacing comes with them. */
     gap: 0;
+    /* Faint at rest so it never competes with the data; full ink on hover. */
+    opacity: 0.15;
+    transition: opacity 0.25s ease;
+}
+.vela-attribution:hover {
+    opacity: 1;
 }
 .vela-attribution .vela-attr-symbol {
     flex: none;
