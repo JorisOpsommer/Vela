@@ -2,7 +2,7 @@
 // consolidated SIP tape, which the free plan serves up to 15 minutes ago; the newest
 // stretch is filled from the real-time IEX feed. The trading API supplies the asset list
 // (search) and the exchange calendar (sessions, holidays, half days).
-import type { Bridge, BarRequest, CatalogEntry, OHLCV, Quote } from '../types';
+import type { Bridge, BarRequest, CatalogEntry, ExtendedQuote, OHLCV, Quote } from '../types';
 import { TokenBucket, TtlCache, fetchJson } from '../limits';
 import { aggregate, clip, localDate, localTimeOfDay, nominalMs, normalizeBars, zonedWallTime, type Timeframe } from '../timeframes';
 
@@ -27,7 +27,7 @@ interface BarsPage {
     next_page_token: string | null;
 }
 
-interface RawSnapshot {
+export interface RawSnapshot {
     latestTrade?: { p: number; t: string };
     dailyBar?: RawBar;
     prevDailyBar?: RawBar;
@@ -255,10 +255,28 @@ export class AlpacaBridge implements Bridge {
         const out = new Map<string, Quote>();
         const jobs: Promise<Map<string, Quote>>[] = [];
         if (stocks.length) {
+            const list = encodeURIComponent(stocks.join(','));
             jobs.push(
-                this.quoteCache.wrap(`s|${[...stocks].sort().join(',')}`, 10_000, async () =>
-                    parseSnapshots(await this.get<Record<string, RawSnapshot>>(`${this.cfg.dataUrl}/v2/stocks/snapshots?symbols=${encodeURIComponent(stocks.join(','))}&feed=iex`, 'snapshots')),
-                ),
+                this.quoteCache.wrap(`s|${[...stocks].sort().join(',')}`, 10_000, async () => {
+                    // IEX is real time but only one venue, with no extended-hours trades; the
+                    // consolidated (delayed) tape carries the official closes and the pre/post
+                    // trades. A failed consolidated read keeps the IEX answer.
+                    const [iex, sip] = await Promise.all([
+                        this.get<Record<string, RawSnapshot>>(`${this.cfg.dataUrl}/v2/stocks/snapshots?symbols=${list}&feed=iex`, 'snapshots'),
+                        this.get<Record<string, RawSnapshot>>(`${this.cfg.dataUrl}/v2/stocks/snapshots?symbols=${list}&feed=delayed_sip`, 'snapshots-sip').catch(() => null),
+                    ]);
+                    const out = parseSnapshots(iex);
+                    if (!sip) return out;
+                    const cal = await this.calendar(Date.now() - 10 * DAY_MS, Date.now()).catch(() => null);
+                    for (const [sym, q] of out) {
+                        const s = sip[sym];
+                        if (!s) continue;
+                        const prevClose = s.prevDailyBar?.c ?? q.prevClose;
+                        const extended = cal ? extendedFromSnapshot(s, cal) : null;
+                        out.set(sym, { ...q, prevClose, ...(extended ? { extended } : {}) });
+                    }
+                    return out;
+                }),
             );
         }
         if (crypto.length) {
@@ -290,6 +308,25 @@ export class AlpacaBridge implements Bridge {
     budgetLeft(): number {
         return this.bucket.available();
     }
+}
+
+/**
+ * A consolidated snapshot's latest trade, when it fell in the pre- or post-market of its
+ * trading day: measured from that day's regular close after hours, and from the previous
+ * trading day's before the open. Daily bars cover the regular session only.
+ */
+export function extendedFromSnapshot(s: RawSnapshot, cal: ReadonlyMap<string, CalendarDay>): ExtendedQuote | null {
+    if (!s.latestTrade) return null;
+    const t = Date.parse(s.latestTrade.t);
+    const date = localDate(NY, t);
+    const day = cal.get(date);
+    if (!day || (t >= day.open && t < day.close) || t < day.sessionOpen || t >= day.sessionClose) return null;
+    const daily = [s.dailyBar, s.prevDailyBar].filter((b): b is RawBar => !!b).map((b) => ({ date: localDate(NY, Date.parse(b.t)), close: b.c }));
+    if (t < day.open) {
+        const prior = daily.filter((b) => b.date < date).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+        return { session: 'pre', price: s.latestTrade.p, base: prior?.close ?? null, time: t };
+    }
+    return { session: 'post', price: s.latestTrade.p, base: daily.find((b) => b.date === date)?.close ?? null, time: t };
 }
 
 /** Snapshot rows → quotes. The previous daily bar holds the prior session's close. */

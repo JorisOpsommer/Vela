@@ -25,6 +25,8 @@ interface QuoteRow {
     change: number | null;
     changePct: number | null;
     time: number;
+    /** The latest pre/post-market trade, while the regular session is closed. */
+    extended?: { session: 'pre' | 'post'; price: number; changePct: number | null };
 }
 
 const STORAGE_KEY = 'watchlist';
@@ -196,12 +198,28 @@ class WatchlistView {
             chg.textContent = q.changePct == null ? '—' : `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`;
             row.classList.toggle('up', (q.changePct ?? 0) > 0);
             row.classList.toggle('down', (q.changePct ?? 0) < 0);
+            this.paintExtended(row, q);
             if (prev && prev.price !== q.price) {
                 last.classList.remove('flash-up', 'flash-down');
                 void last.offsetWidth;
                 last.classList.add(q.price > prev.price ? 'flash-up' : 'flash-down');
             }
         }
+    }
+
+    /** The pre/post-market line under the regular price: a sun before the open, a moon after the close. */
+    private paintExtended(row: HTMLElement, q: QuoteRow): void {
+        const ext = row.querySelector<HTMLElement>('.wl-ext')!;
+        const x = q.extended;
+        row.classList.toggle('has-ext', !!x);
+        ext.hidden = !x;
+        if (!x) return;
+        const pct = x.changePct;
+        ext.className = `wl-ext ${x.session}${pct == null ? '' : pct > 0 ? ' up' : pct < 0 ? ' down' : ''}`;
+        ext.title = x.session === 'pre' ? 'Pre-market' : 'Post-market';
+        ext.querySelector('.wl-ext-tag')!.textContent = x.session === 'pre' ? '☀' : '☾';
+        ext.querySelector('.wl-ext-price')!.textContent = formatPrice(q.symbol, x.price);
+        ext.querySelector('.wl-ext-chg')!.textContent = pct == null ? '' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
     }
 
     private markActive(): void {
@@ -281,6 +299,9 @@ class WatchlistView {
         label.append(el('span', 'wl-sym', sym), el('span', 'wl-name', d?.description ?? ''));
         const last = el('span', 'wl-last', '—');
         const chg = el('span', 'wl-chg', '');
+        const ext = el('span', 'wl-ext');
+        ext.hidden = true;
+        ext.append(el('span', 'wl-ext-tag'), el('span', 'wl-ext-price'), el('span', 'wl-ext-chg'));
         const rm = el('button', 'wl-remove', '✕');
         rm.title = 'Remove from watchlist';
         rm.onclick = (e) => {
@@ -289,7 +310,7 @@ class WatchlistView {
             this.save();
             this.render();
         };
-        row.append(icon, label, last, chg, rm);
+        row.append(icon, label, last, chg, rm, ext);
         const open = () => {
             this.ctx.setSymbol(d?.prefix ? `${d.prefix}:${sym}` : sym);
             // On a phone the panel covers the chart: get out of the way once a symbol is picked.

@@ -50,6 +50,18 @@ export interface Quote {
     /** Previous session close, for change / change %. */
     prevClose: number | null;
     time: number;
+    /** The latest pre/post-market trade, when it is newer than the regular session. */
+    extended?: ExtendedQuote;
+}
+
+/** A US equity's latest trade outside regular hours. */
+export interface ExtendedQuote {
+    session: 'pre' | 'post';
+    price: number;
+    /** The regular-session close it moves from: the same day's for post-market, the
+     *  previous trading day's for pre-market. */
+    base: number | null;
+    time: number;
 }
 
 /** One upstream market-data source. Every method may throw; the router falls back. */
@@ -60,6 +72,9 @@ export interface Bridge {
     getBars(ticker: string, tf: Timeframe, req: BarRequest, entry: CatalogEntry): Promise<OHLCV[]>;
     /** Batch quotes, keyed by the bridge's ticker. */
     quotes?(tickers: string[], entries: CatalogEntry[]): Promise<Map<string, Quote>>;
+    /** Real-time pre/post-market prices, served from spare request budget only: a ticker
+     *  missing from the answer was not fetched (budget, failure, no extended trade). */
+    extendedQuotes?(tickers: string[]): Promise<Map<string, ExtendedQuote>>;
     /** How often the live hub refreshes the tail of an open chart from this bridge. */
     readonly pollMs: number;
 }

@@ -1,10 +1,10 @@
 // The router in front of the bridges: resolves a symbol to its catalog entry, tries each
 // source in order (skipping bridges that keep failing), merges real-time trades into
 // quotes, and runs the live hub that streams forming bars to browsers.
-import type { Bridge, BridgeId, BarRequest, CatalogEntry, OHLCV, Quote } from './types';
+import type { Bridge, BridgeId, BarRequest, CatalogEntry, ExtendedQuote, OHLCV, Quote } from './types';
 import { ProviderLimitError, UpstreamError, rateLimitWait } from './types';
 import type { Catalog } from './catalog';
-import { bucketStart, localDate, localTimeOfDay, parseTimeframe, zonedWallTime, type Timeframe } from './timeframes';
+import { bucketStart, clip, localDate, localTimeOfDay, parseTimeframe, zonedWallTime, type Timeframe } from './timeframes';
 import type { AlpacaBridge } from './bridges/alpaca';
 import type { FinnhubBridge, Trade } from './bridges/finnhub';
 import type { CoinbaseBridge } from './bridges/coinbase';
@@ -17,7 +17,12 @@ export interface QuoteRow {
     changePct: number | null;
     time: number;
     source: BridgeId;
+    /** The latest pre/post-market trade while the regular session is closed. */
+    extended?: { session: 'pre' | 'post'; price: number; change: number | null; changePct: number | null; time: number };
 }
+
+/** How far back the real-time extended-hours tail reaches: past the consolidated tape's delay. */
+const EXTENDED_TAIL_MS = 20 * 60_000;
 
 interface Health {
     failures: number;
@@ -92,10 +97,11 @@ export class MarketService {
         for (const src of ordered) {
             const bridge = this.bridge(src.bridge)!;
             try {
-                const bars = await bridge.getBars(src.ticker, tf, req, entry);
+                let bars = await bridge.getBars(src.ticker, tf, req, entry);
                 this.record(src.bridge, true);
                 // An empty answer for an initial load usually means "not listed here" — try the next source.
                 if (bars.length === 0 && req.from == null && ordered.length > 1 && src !== ordered[ordered.length - 1]) continue;
+                if (src.bridge !== 'yahoo') bars = await this.withRealtimeExtendedTail(entry, tf, req, bars);
                 return { entry, source: src.bridge, bars };
             } catch (err) {
                 lastErr = err;
@@ -131,6 +137,7 @@ export class MarketService {
             byBridge.set(first.bridge, list);
         }
         const rows = new Map<string, QuoteRow>();
+        const raw = new Map<string, Quote>();
         const misses: Array<{ entry: CatalogEntry; fallbacks: Array<{ bridge: BridgeId; ticker: string }> }> = [];
         await Promise.all(
             [...byBridge].map(async ([id, items]) => {
@@ -140,7 +147,10 @@ export class MarketService {
                     this.record(id, true);
                     for (const it of items) {
                         const q = got.get(it.ticker);
-                        if (q) rows.set(it.entry.symbol, this.row(it.entry, q, id));
+                        if (q) {
+                            rows.set(it.entry.symbol, this.row(it.entry, q, id));
+                            raw.set(it.entry.symbol, q);
+                        }
                         else misses.push(it);
                     }
                 } catch {
@@ -157,6 +167,7 @@ export class MarketService {
                     const hit = q?.get(fb.ticker);
                     if (hit) {
                         rows.set(m.entry.symbol, this.row(m.entry, hit, fb.bridge));
+                        raw.set(m.entry.symbol, hit);
                         return;
                     }
                 }
@@ -168,7 +179,64 @@ export class MarketService {
             const r = rows.get(e.symbol);
             if (live && r && live.time > r.time && this.tradeCountsForQuote(e, live)) rows.set(e.symbol, this.row(e, { price: live.price, prevClose: r.prevClose, time: live.time }, r.source));
         }
+        await this.attachExtended(entries, rows, raw);
         return symbols.map((s) => this.resolve(s)?.symbol).flatMap((s) => (s && rows.get(s) ? [rows.get(s)!] : []));
+    }
+
+    /**
+     * The extended-hours tape of a US equity is delayed on the consolidated feed and absent
+     * from the real-time single-venue one, so outside regular hours its newest minutes come
+     * from Yahoo's real-time tape instead. Any Yahoo failure (its budget included) keeps the
+     * delayed answer.
+     */
+    private async withRealtimeExtendedTail(entry: CatalogEntry, tf: Timeframe, req: BarRequest, bars: OHLCV[]): Promise<OHLCV[]> {
+        if (req.session !== 'extended' || (entry.class !== 'stock' && entry.class !== 'etf') || tf.unit !== 'minute' || tf.n >= 1440) return bars;
+        const now = Date.now();
+        const tailMs = Math.max(EXTENDED_TAIL_MS, 2 * tf.n * 60_000);
+        if (req.to != null && req.to < now - tailMs) return bars;
+        const yahoo = this.bridges.yahoo;
+        const src = entry.sources.find((x) => x.bridge === 'yahoo');
+        if (!yahoo || !src || !this.healthy('yahoo')) return bars;
+        if (await this.regularSessionOpen(entry, now)) return bars;
+        try {
+            const tail = await yahoo.getBars(src.ticker, tf, { from: now - tailMs, session: 'extended' }, entry);
+            this.record('yahoo', true);
+            return clip(spliceTail(bars, tail), { from: req.from, to: req.to, limit: req.limit });
+        } catch {
+            this.record('yahoo', false);
+            return bars;
+        }
+    }
+
+    /** Whether the US equity session is in regular hours at `now`, per the exchange calendar. */
+    private async regularSessionOpen(entry: CatalogEntry, now: number): Promise<boolean> {
+        const windows = await this.calendar(entry.symbol, now - 60_000, now + 60_000, 'regular').catch(() => null);
+        if (windows) return windows.some(([a, b]) => now >= a && now < b);
+        const tod = localTimeOfDay('America/New_York', now);
+        return tod >= 9.5 * 3_600_000 && tod < 16 * 3_600_000;
+    }
+
+    /** Pre/post-market prices for the equity rows, while the regular session is closed: the
+     *  real-time Yahoo price when its budget allows, else the delayed consolidated one. */
+    private async attachExtended(entries: CatalogEntry[], rows: Map<string, QuoteRow>, quotes: Map<string, Quote>): Promise<void> {
+        const equities = entries.filter((e) => (e.class === 'stock' || e.class === 'etf') && rows.has(e.symbol));
+        if (equities.length === 0 || (await this.regularSessionOpen(equities[0]!, Date.now()))) return;
+        const yahooTicker = (e: CatalogEntry) => e.sources.find((x) => x.bridge === 'yahoo')?.ticker;
+        let live = new Map<string, ExtendedQuote>();
+        const yahoo = this.bridges.yahoo;
+        if (yahoo?.extendedQuotes && this.healthy('yahoo')) {
+            const tickers = equities.map(yahooTicker).filter((t): t is string => !!t);
+            live = await yahoo.extendedQuotes(tickers).catch(() => new Map<string, ExtendedQuote>());
+        }
+        for (const e of equities) {
+            const yt = yahooTicker(e);
+            const candidates = [yt ? live.get(yt) : undefined, quotes.get(e.symbol)?.extended].filter((x): x is ExtendedQuote => !!x);
+            const newest = candidates.sort((a, b) => b.time - a.time)[0];
+            const row = rows.get(e.symbol)!;
+            if (!newest) continue;
+            const change = newest.base != null ? newest.price - newest.base : null;
+            row.extended = { session: newest.session, price: newest.price, change, changePct: change != null && newest.base ? (change / newest.base) * 100 : null, time: newest.time };
+        }
     }
 
     private quoteSources(e: CatalogEntry): Array<{ bridge: BridgeId; ticker: string }> {
@@ -217,6 +285,19 @@ export class MarketService {
         }
         return weekdayWindows(e, from, to);
     }
+}
+
+/**
+ * Lay a real-time tail over delayed bars: the tail takes over from the delayed tape's newest
+ * bar (often a partial bucket) onward; older delayed bars stand.
+ */
+export function spliceTail(bars: readonly OHLCV[], tail: readonly OHLCV[]): OHLCV[] {
+    if (tail.length === 0) return [...bars];
+    const cut = bars.length > 0 ? bars[bars.length - 1]!.time : -Infinity;
+    const fresh = tail.filter((b) => b.time >= cut);
+    if (fresh.length === 0) return [...bars];
+    const replaced = new Set(fresh.map((b) => b.time));
+    return [...bars.filter((b) => !replaced.has(b.time)), ...fresh].sort((a, b) => a.time - b.time);
 }
 
 /** Mon–Fri windows of `entry.session` (`HHMM-HHMM`) in its own zone. */

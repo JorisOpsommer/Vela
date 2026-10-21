@@ -1,7 +1,7 @@
 // Yahoo Finance's public chart endpoint (no key): indices, futures, FX, and a fallback
 // for equities. Unofficial — it can change without notice — so every answer is cached and
 // the request rate is kept low.
-import type { Bridge, BarRequest, CatalogEntry, OHLCV, Quote } from '../types';
+import type { Bridge, BarRequest, CatalogEntry, ExtendedQuote, OHLCV, Quote } from '../types';
 import { UpstreamError } from '../types';
 import { TokenBucket, TtlCache, fetchJson } from '../limits';
 import { aggregate, clip, localDate, localMidnight, localTimeOfDay, nominalMs, normalizeBars, type Timeframe } from '../timeframes';
@@ -9,7 +9,13 @@ import { aggregate, clip, localDate, localMidnight, localTimeOfDay, nominalMs, n
 interface ChartResponse {
     chart: {
         result: Array<{
-            meta: { regularMarketPrice?: number; chartPreviousClose?: number; regularMarketTime?: number; exchangeTimezoneName?: string };
+            meta: {
+                regularMarketPrice?: number;
+                chartPreviousClose?: number;
+                regularMarketTime?: number;
+                exchangeTimezoneName?: string;
+                tradingPeriods?: { pre?: TradingPeriod[][]; regular?: TradingPeriod[][]; post?: TradingPeriod[][] } | TradingPeriod[][];
+            };
             timestamp?: number[];
             indicators: { quote: Array<{ open: (number | null)[]; high: (number | null)[]; low: (number | null)[]; close: (number | null)[]; volume: (number | null)[] }> };
         }> | null;
@@ -17,10 +23,23 @@ interface ChartResponse {
     };
 }
 
+interface TradingPeriod {
+    start: number;
+    end: number;
+}
+
 const HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
 // A full browser UA string without browser cookies is throttled; the bare token is not.
 const UA = 'Mozilla/5.0';
 const DAY_MS = 86_400_000;
+/** Extended-hours intraday bars fold from the 04:00 New York tape open. */
+const EXTENDED_ANCHOR_MS = 4 * 3_600_000;
+/** An extended quote younger than this is not fetched again. */
+const EXT_FRESH_MS = 60_000;
+/** An extended quote older than this is not served (the caller falls back). */
+const EXT_MAX_AGE_MS = 5 * 60_000;
+/** Tokens the extended quotes leave in the bucket for chart loads. */
+const EXT_RESERVE = 4;
 
 /** Yahoo intraday intervals (minutes) and how far back each is served. */
 const INTRADAY: Array<{ n: number; interval: string; maxAgeMs: number; maxSpanMs: number }> = [
@@ -75,6 +94,7 @@ export class YahooBridge implements Bridge {
     private readonly bucket = new TokenBucket(40, 8, 'yahoo');
     private readonly chunkCache = new TtlCache<{ tz: string | null; bars: OHLCV[] }>(600, 'yahoo');
     private readonly quoteCache = new TtlCache<Quote | null>(300, 'yahoo');
+    private readonly extCache = new Map<string, { value: ExtendedQuote | null; at: number }>();
 
     supports(_tf: Timeframe, _entry: CatalogEntry): boolean {
         return true;
@@ -101,7 +121,8 @@ export class YahooBridge implements Bridge {
         const plan = yahooPlan(tf);
         const now = Date.now();
         const to = Math.min(req.to ?? now, now);
-        const sessionHours = entry.class === 'futures' || entry.class === 'forex' ? 23 : 7;
+        const extended = req.session === 'extended' && (entry.class === 'stock' || entry.class === 'etf') && plan.base.unit === 'minute';
+        const sessionHours = entry.class === 'futures' || entry.class === 'forex' ? 23 : extended ? 16 : 7;
         const intradayFactor = plan.base.unit === 'minute' ? (24 / sessionHours) * (7 / 5) * 1.2 : 1.5;
         let from = req.from ?? to - nominalMs(tf) * (req.limit ?? 500) * intradayFactor - 4 * DAY_MS;
         from = Math.max(from, now - plan.maxAgeMs);
@@ -109,7 +130,7 @@ export class YahooBridge implements Bridge {
 
         const chunks: Array<[number, number]> = [];
         for (let end = to; end > from; end -= plan.maxSpanMs) chunks.push([Math.max(from, end - plan.maxSpanMs), end]);
-        const parts = await Promise.all(chunks.map(([a, b]) => this.fetchChunk(ticker, plan, a, b)));
+        const parts = await Promise.all(chunks.map(([a, b]) => this.fetchChunk(ticker, plan, a, b, extended)));
         // Bucket in the venue's own zone as Yahoo reports it: its daily rows are stamped
         // at that zone's session start, so another zone could move them across midnight.
         const tz = parts.find((p) => p.tz)?.tz ?? entry.timezone;
@@ -117,7 +138,7 @@ export class YahooBridge implements Bridge {
         // Fold to the plan's base first (the trailing live point is not interval-aligned),
         // then to the requested timeframe.
         if (plan.base.unit === 'minute') {
-            const open = sessionOpenOfDay(bars, tz);
+            const open = extended ? EXTENDED_ANCHOR_MS : sessionOpenOfDay(bars, tz);
             bars = aggregate(bars, plan.base, tz, open % (plan.base.n * 60_000));
             if (tf.unit === 'minute' && tf.n !== plan.base.n) bars = aggregate(bars, tf, tz, open % (tf.n * 60_000));
             else if (tf.unit !== 'minute') bars = aggregate(bars, tf, tz);
@@ -128,15 +149,15 @@ export class YahooBridge implements Bridge {
         return clip(bars, { from: req.from, to: req.to, limit: req.limit });
     }
 
-    private fetchChunk(ticker: string, plan: Plan, from: number, to: number): Promise<{ tz: string | null; bars: OHLCV[] }> {
+    private fetchChunk(ticker: string, plan: Plan, from: number, to: number, extended = false): Promise<{ tz: string | null; bars: OHLCV[] }> {
         const live = to > Date.now() - 2 * DAY_MS;
         const step = plan.base.unit === 'minute' ? 60_000 : DAY_MS;
         const a = Math.floor(from / step) * step;
         const b = live ? Math.floor(to / 60_000) * 60_000 : Math.ceil(to / step) * step;
-        const key = `${ticker}|${plan.interval}|${a}|${b}`;
+        const key = `${ticker}|${plan.interval}|${a}|${b}${extended ? '|ext' : ''}`;
         const ttl = live ? (plan.base.unit === 'minute' ? 30_000 : 120_000) : 12 * 3_600_000;
         return this.chunkCache.wrap(key, ttl, async () => {
-            const [r] = await this.chart(ticker, { interval: plan.interval, period1: String(Math.floor(a / 1000)), period2: String(Math.ceil(b / 1000) + 60) });
+            const [r] = await this.chart(ticker, { interval: plan.interval, period1: String(Math.floor(a / 1000)), period2: String(Math.ceil(b / 1000) + 60), ...(extended ? { includePrePost: 'true' } : {}) });
             const tz = r?.meta.exchangeTimezoneName ?? null;
             const out: OHLCV[] = [];
             const q = r?.indicators.quote[0];
@@ -192,4 +213,49 @@ export class YahooBridge implements Bridge {
         );
         return out;
     }
+
+    async extendedQuotes(tickers: string[]): Promise<Map<string, ExtendedQuote>> {
+        const now = Date.now();
+        const age = (t: string) => now - (this.extCache.get(t)?.at ?? 0);
+        // Oldest first, and only as many as the bucket can spare: a long watchlist refreshes
+        // round-robin across calls instead of starving chart loads of their budget.
+        const due = tickers.filter((t) => age(t) > EXT_FRESH_MS).sort((x, y) => age(y) - age(x));
+        const spare = Math.max(0, Math.floor(this.bucket.available() - EXT_RESERVE));
+        await Promise.all(
+            due.slice(0, spare).map(async (t) => {
+                const value = await this.fetchExtended(t).catch(() => undefined);
+                if (value !== undefined) this.extCache.set(t, { value, at: Date.now() });
+            }),
+        );
+        const out = new Map<string, ExtendedQuote>();
+        for (const t of tickers) {
+            const e = this.extCache.get(t);
+            if (e?.value && Date.now() - e.at <= EXT_MAX_AGE_MS) out.set(t, e.value);
+        }
+        return out;
+    }
+
+    /** The newest bar of today's full tape, when it lies in the pre- or post-market. */
+    private async fetchExtended(ticker: string): Promise<ExtendedQuote | null> {
+        const [r] = await this.chart(ticker, { interval: '1m', range: '1d', includePrePost: 'true' });
+        return r ? extendedFromChart(r.meta, r.timestamp ?? [], r.indicators.quote[0]?.close ?? []) : null;
+    }
+}
+
+/** Classify the newest priced point of a 1-minute, pre/post-inclusive chart against its
+ *  trading periods. */
+export function extendedFromChart(
+    meta: { regularMarketPrice?: number; tradingPeriods?: unknown },
+    timestamps: readonly number[],
+    closes: ReadonlyArray<number | null>,
+): ExtendedQuote | null {
+    let i = timestamps.length - 1;
+    while (i >= 0 && closes[i] == null) i--;
+    if (i < 0) return null;
+    const t = timestamps[i]!;
+    const periods = (meta.tradingPeriods ?? {}) as { pre?: TradingPeriod[][]; post?: TradingPeriod[][] };
+    const within = (rows: TradingPeriod[][] | undefined) => (Array.isArray(rows) ? rows.flat().some((p) => t >= p.start && t < p.end) : false);
+    const session = within(periods.pre) ? 'pre' : within(periods.post) ? 'post' : null;
+    if (!session) return null;
+    return { session, price: closes[i]!, base: meta.regularMarketPrice ?? null, time: t * 1000 };
 }
