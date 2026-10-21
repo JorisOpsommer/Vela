@@ -22,9 +22,14 @@ export const WHEEL_ITEM_PX = 34;
 /** Degrees of drum per item, and the drum radius that keeps an item WHEEL_ITEM_PX tall. */
 const STEP_DEG = 20;
 const RADIUS = WHEEL_ITEM_PX / ((STEP_DEG * Math.PI) / 180);
-/** Past the start point (or near the host's top), the drum keeps rolling at this rate. */
-const ROLL_ZONE_PX = 10;
-const ROLL_ITEMS_PER_S = 7;
+/** Past the start point (or near the host's top), the drum keeps rolling — once the
+ *  finger has rested there a moment (a slip does not roll), slowly at first. */
+const ROLL_ZONE_PX = 14;
+const ROLL_DELAY_MS = 300;
+const ROLL_START_ITEMS_PER_S = 2.5;
+const ROLL_MAX_ITEMS_PER_S = 6;
+/** Items per second the roll gains for each second it runs. */
+const ROLL_RAMP = 4;
 const EDGE_PX = 28;
 /** How far the drum may stretch past either end before it stops following. */
 const OVERSCROLL = 0.45;
@@ -174,6 +179,11 @@ export class TimeframeWheel {
      *  drum moves smoothly and settles on each item like a detent. */
     private shown = 0;
     private rolling = false;
+    /** When the finger entered the roll zone (frame time), or null outside it. */
+    private zoneSince: number | null = null;
+    /** The finger's travel counts only inside the host: a finger that slides off the
+     *  app (onto the browser's toolbar) moves the drum no further. */
+    private bounds = { top: -Infinity, bottom: Infinity };
     private selected = -1;
     private initial = -1;
     private raf = 0;
@@ -307,8 +317,12 @@ export class TimeframeWheel {
         this.open = true;
         this.initial = this.selected = Math.max(0, this.list.indexOf(current));
         this.anchorPos = this.pos = this.shown = this.initial;
-        this.anchorY = this.lastY;
+        const host = this.opts.host.getBoundingClientRect();
+        const view = this.doc.defaultView;
+        this.bounds = host.height > 0 ? { top: host.top, bottom: host.bottom } : { top: 0, bottom: view?.innerHeight ?? Infinity };
+        this.anchorY = this.y();
         this.rolling = false;
+        this.zoneSince = null;
 
         for (const el of this.items) el.remove();
         this.items = this.list.map((tf) => {
@@ -363,13 +377,17 @@ export class TimeframeWheel {
      *  so a reversal answers at once instead of after the overshoot is undone. */
     private track(): void {
         const max = this.list.length - 1;
-        let pos = this.anchorPos + (this.anchorY - this.lastY) / WHEEL_ITEM_PX;
+        let pos = this.anchorPos + (this.anchorY - this.y()) / WHEEL_ITEM_PX;
         if (pos > max + OVERSCROLL || pos < -OVERSCROLL) {
             pos = Math.min(max + OVERSCROLL, Math.max(-OVERSCROLL, pos));
             this.anchorPos = pos;
-            this.anchorY = this.lastY;
+            this.anchorY = this.y();
         }
         this.pos = pos;
+    }
+
+    private y(): number {
+        return Math.min(this.bounds.bottom, Math.max(this.bounds.top, this.lastY));
     }
 
     /** Rolling while the finger sits past its start point (no room left below) or
@@ -378,17 +396,22 @@ export class TimeframeWheel {
         if (!this.open) return;
         const dt = this.lastFrame ? Math.min(0.05, (t - this.lastFrame) / 1000) : 0;
         this.lastFrame = t;
-        const host = this.opts.host.getBoundingClientRect();
-        const dir = this.lastY > this.startY + ROLL_ZONE_PX ? -1 : this.lastY < host.top + EDGE_PX ? 1 : 0;
+        const y = this.y();
+        const zone = y > this.startY + ROLL_ZONE_PX ? -1 : y < this.bounds.top + EDGE_PX ? 1 : 0;
+        if (zone === 0) this.zoneSince = null;
+        else this.zoneSince ??= t;
+        const held = this.zoneSince === null ? 0 : t - this.zoneSince - ROLL_DELAY_MS;
+        const dir = held >= 0 ? zone : 0;
         if (dir === 0 && this.rolling) {
             // The finger leaves the roll zone: hold the item the roll stopped on, so
             // the small move it takes to stop rolling never steps one item further.
             this.anchorPos = this.pos = this.selected;
-            this.anchorY = this.lastY;
+            this.anchorY = y;
         }
         this.rolling = dir !== 0;
         if (dir !== 0 && dt > 0) {
-            this.anchorPos += dir * ROLL_ITEMS_PER_S * dt;
+            const rate = Math.min(ROLL_MAX_ITEMS_PER_S, ROLL_START_ITEMS_PER_S + (ROLL_RAMP * held) / 1000);
+            this.anchorPos += dir * rate * dt;
             this.track();
         } else if (dir === 0) {
             // Ease a stretched drum back inside the ends while the finger rests.

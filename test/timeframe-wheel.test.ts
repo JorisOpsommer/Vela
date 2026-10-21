@@ -109,7 +109,9 @@ describe('timeframe stop — tap vs hold', () => {
         pointer(t.stop, 'pointerdown', 50, 700);
         vi.advanceTimersByTime(WHEEL_HOLD_MS);
         pointer(t.stop, 'pointermove', 50, 720);
-        vi.advanceTimersByTime(1000);
+        vi.advanceTimersByTime(200);
+        expect(t.selectedLabel()).toBe('1h'); // a brief dip only follows the finger
+        vi.advanceTimersByTime(2000);
         expect(t.selectedLabel()).toBe('1m');
         pointer(t.stop, 'pointerup', 50, 720);
         expect(t.calls.selected).toEqual(['1']);
@@ -120,12 +122,21 @@ describe('timeframe stop — tap vs hold', () => {
         pointer(t.stop, 'pointerdown', 50, 700);
         vi.advanceTimersByTime(WHEEL_HOLD_MS);
         pointer(t.stop, 'pointermove', 50, 720);
-        vi.advanceTimersByTime(300);
+        vi.advanceTimersByTime(800);
         const stoppedOn = t.selectedLabel();
         expect(stoppedOn).not.toBe('1D');
         pointer(t.stop, 'pointermove', 50, 698);
         vi.advanceTimersByTime(200);
         expect(t.selectedLabel()).toBe(stoppedOn);
+    });
+
+    it('a finger sliding off the bottom of the app moves the drum no further than the edge', () => {
+        const t = mount('D');
+        pointer(t.stop, 'pointerdown', 50, 700);
+        vi.advanceTimersByTime(WHEEL_HOLD_MS);
+        pointer(t.stop, 'pointermove', 50, 5000); // jsdom's viewport ends at 768
+        vi.advanceTimersByTime(100);
+        expect(t.selectedLabel()).toBe('15m'); // (768 − 700) / 34 = two items, not the whole list
     });
 
     it('a release on the starting timeframe, or a cancelled pointer, switches nothing', () => {

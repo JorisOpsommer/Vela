@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vela-app-scratch",
+      "runtimeExecutable": "/private/tmp/claude-502/-Users-303705-Documents-dev-joris-Vela/d71d2135-797f-4ebe-a108-85dba720daf4/scratchpad/run-vela.sh",
+      "runtimeArgs": [],
+      "port": 8091
+    },
+    {
+      "name": "vela-app-glyph",
+      "runtimeExecutable": "/private/tmp/claude-502/-Users-303705-Documents-dev-joris-Vela/6ab879a0-9959-4215-805f-eb8c9fae7080/scratchpad/run-vela.sh",
+      "runtimeArgs": [],
+      "port": 8092
+    }
+  ]
+}
