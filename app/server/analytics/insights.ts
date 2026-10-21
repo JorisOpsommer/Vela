@@ -116,6 +116,8 @@ export function buildInsights(opts: {
     related: RelatedMap;
     watchlist: string[];
     now?: number;
+    /** Varies the suggestions between visits; omit for a deterministic result. */
+    random?: () => number;
 }) {
     const now = opts.now ?? Date.now();
     const rows = opts.db.prepare('SELECT ts, kind, value, extra, n FROM analytics_events WHERE user_id = ? AND ts >= ? ORDER BY ts').all(opts.userId, now - RETENTION_MS) as unknown as Row[];
@@ -227,16 +229,16 @@ export function buildInsights(opts: {
 
     const exclude = new Set([...opens.keys(), ...opts.watchlist]);
     // Ask for extra, then drop anything no longer listed (the map is hand-maintained).
-    const suggestions: Suggestion[] = opts.related.suggest(interest, exclude, 18).filter((s) => opts.catalog.isListed(s.symbol)).slice(0, 12);
+    const suggestions: Suggestion[] = opts.related.suggest(interest, exclude, 18, opts.random).filter((s) => opts.catalog.isListed(s.symbol)).slice(0, 12);
     const topInterest = [...interest.entries()].filter(([s]) => opts.related.get(s)).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const because = topInterest.map(([sym]) => ({
         symbol: sym,
         name: opts.related.get(sym)!.n,
-        peers: opts.related
-            .peersOf(sym)
-            .filter((p) => !exclude.has(p) && opts.catalog.isListed(p))
-            .slice(0, 5)
-            .map((p) => ({ symbol: p, name: opts.related.get(p)!.n })),
+        peers: sample(
+            opts.related.peersOf(sym).filter((p) => !exclude.has(p) && opts.catalog.isListed(p)),
+            5,
+            opts.random,
+        ).map((p) => ({ symbol: p, name: opts.related.get(p)!.n })),
     }));
 
     const tfTop = countTop(tfUse, 8).map((r) => ({ ...r, label: tfLabel(r.key) }));
@@ -266,6 +268,14 @@ export function buildInsights(opts: {
         suggestions,
         because,
     };
+}
+
+/** `n` items drawn from near the head of the list, in their original order. */
+function sample<T>(items: T[], n: number, random?: () => number): T[] {
+    const head = items.slice(0, n + 3);
+    if (!random) return head.slice(0, n);
+    while (head.length > n) head.splice(Math.floor(random() * head.length), 1);
+    return head;
 }
 
 function share(map: Map<string, number>, keys: string[]): number {

@@ -55,7 +55,7 @@ export function registerInsightRoutes(app: FastifyInstance, ctx: AppContext): vo
             // A malformed watchlist simply contributes nothing.
         }
         if (watchlist.length === 0) watchlist = market.catalog.defaultGroups().flatMap((g) => g.symbols);
-        return buildInsights({ db, userId, tz, catalog: market.catalog, related: ctx.related, watchlist });
+        return buildInsights({ db, userId, tz, catalog: market.catalog, related: ctx.related, watchlist, random: Math.random });
     });
 
     app.delete('/api/analytics/me', async (req) => {

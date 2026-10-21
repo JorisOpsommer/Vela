@@ -32,9 +32,20 @@ const W_SECTOR = 0.15;
 const W_THEMES = 0.8;
 /** Diversity: a candidate's score is discounted by its similarity to ones already picked. */
 const MMR_LAMBDA = 0.72;
+/**
+ * With a random source, each candidate's relevance is scaled by a log-normal factor of this
+ * spread: close matches usually trade places, and now and then a weaker one gets a large
+ * enough lift to show up.
+ */
+const SPREAD = 0.25;
 
 /** Themes too broad to say anything about a pairing. */
 const WEAK_TAGS = new Set(['megacap', 'dividend', 'value', 'growth', 'etf', 'index', 'speculative', 'momentum']);
+
+/** A standard normal draw from a uniform source (Box–Muller). */
+function gaussian(random: () => number): number {
+    return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+}
 
 export class RelatedMap {
     readonly symbols: Map<string, RelatedEntry>;
@@ -112,8 +123,10 @@ export class RelatedMap {
     /**
      * Rank symbols the user has not looked at by how strongly they connect to what they
      * have, weighted by interest. Picks are diversified so one cluster cannot fill the list.
+     * Pass `random` to vary the picks between calls, mostly among comparably strong matches
+     * and occasionally reaching a weaker one; without it the result is deterministic.
      */
-    suggest(profile: Map<string, number>, exclude: Set<string>, limit = 12): Suggestion[] {
+    suggest(profile: Map<string, number>, exclude: Set<string>, limit = 12, random?: () => number): Suggestion[] {
         const known = [...profile.entries()].filter(([s, w]) => w > 0 && this.symbols.has(s));
         if (known.length === 0) return [];
         const total = known.reduce((a, [, w]) => a + w, 0);
@@ -151,6 +164,7 @@ export class RelatedMap {
         scored.sort((a, b) => b.raw - a.raw);
         const pool = scored.slice(0, limit * 6);
         const top = pool[0]?.raw ?? 1;
+        const factor = new Map(pool.map((c) => [c.symbol, random ? Math.exp(SPREAD * gaussian(random)) : 1]));
         const picked: Array<Suggestion & { raw: number }> = [];
         while (picked.length < limit && pool.length > 0) {
             let bestIdx = 0;
@@ -158,7 +172,7 @@ export class RelatedMap {
             for (let i = 0; i < pool.length; i++) {
                 const c = pool[i]!;
                 const redundancy = picked.reduce((m, p) => Math.max(m, Math.min(1, this.similarity(p.symbol, c.symbol).score / 1.5)), 0);
-                const val = MMR_LAMBDA * (c.raw / top) - (1 - MMR_LAMBDA) * redundancy;
+                const val = MMR_LAMBDA * (c.raw / top) * factor.get(c.symbol)! - (1 - MMR_LAMBDA) * redundancy;
                 if (val > bestVal) [bestVal, bestIdx] = [val, i];
             }
             picked.push(pool.splice(bestIdx, 1)[0]!);
