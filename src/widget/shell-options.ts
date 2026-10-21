@@ -61,6 +61,10 @@ export interface VelaShellOptions {
      *  topbar + desktop bottombar for one touch-first bottom bar, presents pickers
      *  fullscreen and menus as bottom drawers, and enables the touch chart gestures. */
     layoutMode?: 'auto' | 'mobile' | 'desktop';
+    /** Where Chart settings lives on the MOBILE layout: `'bar'` (default) is the gear stop
+     *  at the end of the bottom bar; `'menu'` moves it into the three-dots drawer, freeing
+     *  that stop (for a side panel placed there with `mobile: 'bar'`, for example). */
+    mobileSettings?: 'bar' | 'menu';
     /** Focus the chart when the shell mounts so keyboard shortcuts work from the first
      *  keystroke — no initial click needed. Default false: an embedded shell must never
      *  steal the page's focus from the host's own controls. */

@@ -14,6 +14,7 @@ const fullDoc: WorkspaceState = {
     timezone: 'Europe/Paris',
     favorites: ['trendline', 'hline'],
     timeframeFavorites: ['15', '60', 'D'],
+    indicatorFavorites: ['native:rsi', 'script:EMA 20'],
     drawingTools: { defaults: { trendline: { style: { lineColor: '#ff8800', lineWidth: 3 } } }, magnet: 'weak', stay: true },
     sync: { viewport: true, symbol: { c1: 'a', c2: 'a' }, crosshair: true, drawings: true, style: true },
     trackSizes: { '4': { cols: [1.4, 0.6], rows: [1, 1] } },
@@ -185,12 +186,15 @@ describe('sanitizeState (the applyState gate)', () => {
             layout: '1',
             favorites: ['trendline', 7],
             timeframeFavorites: ['60', null, 'D'],
+            indicatorFavorites: ['native:rsi', {}, 'script:EMA 20'],
             charts: [],
         });
         expect(doc!.favorites).toEqual(['trendline']);
         expect(doc!.timeframeFavorites).toEqual(['60', 'D']);
-        const empty = sanitizeState({ version: 1, layout: '1', timeframeFavorites: [42], charts: [] });
+        expect(doc!.indicatorFavorites).toEqual(['native:rsi', 'script:EMA 20']);
+        const empty = sanitizeState({ version: 1, layout: '1', timeframeFavorites: [42], indicatorFavorites: [false], charts: [] });
         expect(empty!.timeframeFavorites).toBeUndefined();
+        expect(empty!.indicatorFavorites).toBeUndefined();
     });
 
     it('dedupes chart entries by id — the LAST duplicate wins', () => {

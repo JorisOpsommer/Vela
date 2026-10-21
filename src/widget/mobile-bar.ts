@@ -1,15 +1,19 @@
 // Mobile bottom bar — the ONE navigation surface of the mobile chrome. Six stops, left
-// to right: symbol (fullscreen search), timeframe (drawer), indicators (fullscreen
-// picker), drawings (drawer), the three-dots drawer (everything else), and chart
-// settings. It replaces BOTH desktop bars: this stylesheet also carries the mobile
-// visibility flips for the topbar and the desktop bottombar, so the whole swap lives
-// in one place and follows the root's `data-layout` attribute with no JS.
+// to right: symbol (fullscreen search), timeframe (drawer on a tap, the quick-switch
+// wheel on a press and hold), indicators (fullscreen picker), drawings (drawer), the
+// three-dots drawer (everything else), and chart settings — then any side panel placed
+// on the bar (`mobile: 'bar'`). A shell with `mobileSettings: 'menu'` drops the settings
+// stop (the drawer carries it instead). It replaces BOTH desktop bars: this stylesheet
+// also carries the mobile visibility flips for the topbar and the desktop bottombar, so
+// the whole swap lives in one place and follows the root's `data-layout` attribute with
+// no JS.
 import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
 import { parseSymbol } from '../data/ProviderRegistry';
 import { timeframeLabel } from './timeframe';
-import { mobilePlacement, widgetActions, type WidgetContext } from './contributions';
+import { mobilePlacement, widgetActions, type SidePanelButton, type WidgetContext } from './contributions';
 import { TOPBAR_BUILTIN_IDS } from './topbar-composition';
+import { TimeframeWheel } from './timeframe-wheel';
 
 const STYLE_ID = 'vela-widget-mobilebar';
 const CSS = `
@@ -49,7 +53,15 @@ const CSS = `
 .vela-mb-item.vela-mb-on, .vela-mb-item.vela-mb-on:active { background: var(--vela-selected-bg); color: var(--vela-selected-fg); }
 /* Left-aligned contributed actions get their own stops (the built-in indicators
    slot) — the wrapper is layout-transparent so each stop flexes like a sibling. */
-.vela-mb-actions { display: contents; }
+.vela-mb-actions, .vela-mb-panels { display: contents; }
+.vela-mb-tf {
+    /* The stop owns its touches while held (the wheel follows the finger), and a long
+       press must not raise the browser's own callout. */
+    touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
 .vela-mb-symbol {
     flex: 1.6 1 0;
     font-size: 14px;
@@ -68,6 +80,13 @@ export interface MobileBarOptions {
     timeframe: string;
     onSymbolClick: () => void;
     onTimeframeClick: () => void;
+    /** Press and hold the timeframe stop to roll through these timeframes, release to
+     *  switch. Omitted ⇒ the stop only taps. */
+    timeframeWheel?: {
+        timeframes: () => readonly string[];
+        current: () => string;
+        onSelect: (tf: string) => void;
+    };
     /** Omitted ⇒ no indicators stop (the composition hides the 'indicators' slot, or
      *  the deprecated `indicatorPicker: false`). A slot OVERRIDE keeps the stop — the
      *  shell passes a callback routed to the override. */
@@ -79,7 +98,8 @@ export interface MobileBarOptions {
      *  {@link setMaximizeActive} lights the stop while something is isolated. */
     onMaximizeClick?: () => void;
     onMoreClick: () => void;
-    onSettingsClick: () => void;
+    /** Omitted ⇒ no settings stop (the shell moved Chart settings into the drawer). */
+    onSettingsClick?: () => void;
     /** Live widget context — left-aligned contributed actions (`align: 'left'`)
      *  project as icon-only stops in the indicators slot. */
     getContext?: () => WidgetContext;
@@ -93,6 +113,9 @@ export class MobileBar {
     private readonly maxEl: HTMLButtonElement | null;
     /** Left-aligned contributed actions — filled by {@link renderActions}. */
     private readonly actionsHost: HTMLElement;
+    /** Side panels placed on the bar — filled by {@link setPanelButtons}. */
+    private readonly panelsHost: HTMLElement;
+    private readonly wheel: TimeframeWheel | null;
     private readonly opts: MobileBarOptions;
 
     constructor(host: HTMLElement, opts: MobileBarOptions) {
@@ -113,8 +136,19 @@ export class MobileBar {
 
         this.symbolEl = item('vela-mb-symbol', 'Symbol search', opts.onSymbolClick);
         this.symbolEl.textContent = parseSymbol(opts.symbol).ticker;
-        this.tfEl = item('vela-mb-tf', 'Timeframe', opts.onTimeframeClick);
+        // The click that ends a hold belongs to the wheel, not the drawer.
+        this.tfEl = item('vela-mb-tf', 'Timeframe', () => {
+            if (!this.wheel?.consumeClick()) opts.onTimeframeClick();
+        });
         this.tfEl.textContent = timeframeLabel(opts.timeframe);
+        const tfWheel = opts.timeframeWheel;
+        this.wheel = tfWheel
+            ? new TimeframeWheel(this.tfEl, {
+                  host,
+                  ...tfWheel,
+                  onActiveChange: (active) => this.tfEl.classList.toggle('vela-mb-on', active),
+              })
+            : null;
         const onIndicators = opts.onIndicatorsClick;
         const indicators = onIndicators ? item('vela-mb-indicators', 'Indicators', onIndicators, 'indicators') : null;
         this.actionsHost = doc.createElement('span');
@@ -124,9 +158,12 @@ export class MobileBar {
         const onMaximize = opts.onMaximizeClick;
         this.maxEl = onMaximize ? item('vela-mb-maximize', 'Maximize chart', onMaximize, 'maximize') : null;
         const more = item('vela-mb-more', 'More', opts.onMoreClick, 'kebab');
-        const settings = item('vela-mb-settings', 'Chart settings', opts.onSettingsClick, 'gear');
+        const onSettings = opts.onSettingsClick;
+        const settings = onSettings ? item('vela-mb-settings', 'Chart settings', onSettings, 'gear') : null;
+        this.panelsHost = doc.createElement('span');
+        this.panelsHost.className = 'vela-mb-panels';
 
-        this.el.append(this.symbolEl, this.tfEl, ...(indicators ? [indicators] : []), this.actionsHost, ...(drawings ? [drawings] : []), ...(this.maxEl ? [this.maxEl] : []), more, settings);
+        this.el.append(this.symbolEl, this.tfEl, ...(indicators ? [indicators] : []), this.actionsHost, ...(drawings ? [drawings] : []), ...(this.maxEl ? [this.maxEl] : []), more, ...(settings ? [settings] : []), this.panelsHost);
         host.appendChild(this.el);
         this.renderActions();
     }
@@ -156,6 +193,37 @@ export class MobileBar {
         }
     }
 
+    /**
+     * The panel toggles (the dock's {@link PanelChrome} contract, like the topbar's group):
+     * only panels placed on the bar (`mobile: 'bar'`) get a stop; the rest stay rows in
+     * the three-dots drawer. A stop lights while its panel is open.
+     */
+    setPanelButtons(buttons: readonly SidePanelButton[], onClick: (id: string) => void): void {
+        const doc = this.el.ownerDocument;
+        this.panelsHost.replaceChildren(
+            ...buttons
+                .filter((p) => p.mobile === 'bar')
+                .map((p) => {
+                    const b = doc.createElement('button');
+                    b.className = 'vela-mb-item vela-mb-panel';
+                    b.dataset.panel = p.id;
+                    b.setAttribute('aria-label', p.title);
+                    b.setAttribute('aria-pressed', 'false');
+                    b.appendChild(iconEl(p.icon, doc));
+                    b.addEventListener('click', () => onClick(p.id));
+                    return b;
+                }),
+        );
+    }
+
+    setPanelActive(id: string, open: boolean): void {
+        for (const b of this.panelsHost.querySelectorAll<HTMLElement>('.vela-mb-panel')) {
+            if (b.dataset.panel !== id) continue;
+            b.classList.toggle('vela-mb-on', open);
+            b.setAttribute('aria-pressed', String(open));
+        }
+    }
+
     setSymbol(symbol: string): void {
         this.symbolEl.textContent = parseSymbol(symbol).ticker;
     }
@@ -180,7 +248,13 @@ export class MobileBar {
         this.maxEl.hidden = !visible;
     }
 
+    /** Close the timeframe wheel without switching (a layout flip mid-hold). */
+    closeTimeframeWheel(): void {
+        this.wheel?.cancel();
+    }
+
     destroy(): void {
+        this.wheel?.destroy();
         this.el.remove();
     }
 }

@@ -272,11 +272,6 @@ body {
 }
 
 
-/* Data notices in the top bar: a delayed feed reads in the warning colour. */
-.vela-widget-action-left:has(.app-delayed-icon) {
-    color: #fab219;
-}
-
 /* ── Toasts (on <body>, outside the chart shell: literal colours) ── */
 .toast-stack {
     position: fixed;

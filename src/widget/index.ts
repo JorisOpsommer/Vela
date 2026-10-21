@@ -16,7 +16,7 @@ export { Statusline, type StatuslineMenuHooks, type StatuslinePart } from './sta
 export { Watermark } from './watermark';
 export { Bottombar, RANGE_PRESETS, type BottombarOptions, type RangePreset } from './bottombar';
 export { SymbolPicker, filterSymbols, type SymbolPickerOptions } from './symbol-picker';
-export { IndicatorPicker, type IndicatorPickerOptions, type IndicatorRow } from './indicator-picker';
+export { IndicatorPicker, indicatorFavoriteKey, type IndicatorPickerOptions, type IndicatorRow } from './indicator-picker';
 export { TimeframeQuick, type TimeframeQuickOptions } from './timeframe-quick';
 export { localStorageAdapter, type VelaStorage, type WidgetStorage } from './persist';
 // The unified shell-state document — the SAME format `vela/workspace` exposes; the

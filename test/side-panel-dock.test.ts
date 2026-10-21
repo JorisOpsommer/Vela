@@ -287,6 +287,17 @@ describe('PanelDock', () => {
         ]);
     });
 
+    it("carries a contributed panel's mobile placement to the chrome and the drawer list", () => {
+        const { dock: d, buttons } = dock();
+        const off = registerSidePanel({ id: 'wl', title: 'Watchlist', icon: 'iw', mobile: 'bar', mount: () => {} });
+        d.refresh();
+        expect(buttons().find((b) => b.id === 'wl')).toEqual({ id: 'wl', title: 'Watchlist', icon: 'iw', mobile: 'bar' });
+        expect(d.list().find((b) => b.id === 'wl')?.mobile).toBe('bar');
+        expect(buttons().find((b) => b.id === 'a')).not.toHaveProperty('mobile'); // default: the menu
+        off();
+        d.refresh();
+    });
+
     it('is exclusive: opening one closes the other, and both pressed states are pushed', () => {
         const { dock: d, panels, active } = dock();
         d.toggle('a');

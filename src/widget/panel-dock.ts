@@ -50,6 +50,11 @@ interface Entry {
     handle?: SidePanelHandle;
     /** The descriptor a contributed entry was built from — a refresh keeps the entry while it is still registered. */
     desc?: SidePanelDescriptor;
+    mobile?: 'bar' | 'menu';
+}
+
+function button(e: Entry): SidePanelButton {
+    return { id: e.id, title: e.title, icon: e.icon, ...(e.mobile ? { mobile: e.mobile } : {}) };
 }
 
 export class PanelDock {
@@ -102,6 +107,7 @@ export class PanelDock {
                 panel,
                 contributed: true,
                 desc,
+                ...(desc.mobile ? { mobile: desc.mobile } : {}),
             };
             // A contribution that throws on mount must not take the shell down with it: the
             // panel stays docked but empty, and the reason is on the console.
@@ -147,7 +153,7 @@ export class PanelDock {
     /** The docked panels in dock order — what a non-topbar chrome (the mobile
      *  three-dots drawer) lists so every panel stays reachable there too. */
     list(): ReadonlyArray<SidePanelButton> {
-        return this.entries.map((e) => ({ id: e.id, title: e.title, icon: e.icon }));
+        return this.entries.map((e) => button(e));
     }
 
     /** The dock's persistable state, or null when there is nothing worth saving. */
@@ -230,7 +236,7 @@ export class PanelDock {
 
     /** Push the current toggle group to the chrome, pressed states included. */
     private publish(): void {
-        const buttons: SidePanelButton[] = this.entries.map((e) => ({ id: e.id, title: e.title, icon: e.icon }));
+        const buttons: SidePanelButton[] = this.entries.map((e) => button(e));
         this.deps.chrome.setPanelButtons(buttons, (id) => this.toggle(id));
         for (const entry of this.entries) this.deps.chrome.setPanelActive(entry.id, entry.panel.open);
     }

@@ -153,11 +153,12 @@ describe('signed-in API', () => {
         expect((await app.inject({ url: '/api/bars?symbol=NOPE!!&tf=D', headers: { cookie } })).statusCode).toBe(404);
     });
 
-    it('marks delayed symbols in the symbol list, and only those', async () => {
+    it('tells the chart which symbols run late, through their symbol info', async () => {
         const { cookie } = await login('alice');
-        const rows = (await app.inject({ url: '/api/symbols', headers: { cookie } })).json() as Array<{ ticker: string; delayMinutes?: number }>;
-        expect(rows.find((r) => r.ticker === 'LATE')?.delayMinutes).toBe(10);
-        expect(rows.find((r) => r.ticker === 'IDX')).not.toHaveProperty('delayMinutes');
+        const late = (await app.inject({ url: '/api/symbol-info?symbol=LATE', headers: { cookie } })).json();
+        expect(late.delay_minutes).toBe(10);
+        const live = (await app.inject({ url: '/api/symbol-info?symbol=IDX', headers: { cookie } })).json();
+        expect(live).not.toHaveProperty('delay_minutes');
     });
 
     it('reports a rate limit that stopped every source, naming the sources and the wait', async () => {

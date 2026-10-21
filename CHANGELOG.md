@@ -2,6 +2,29 @@
 
 All notable changes to Vela, newest first.
 
+## [Unreleased]
+
+### Added
+
+- **See when a symbol's data runs late.** A data provider can tell the chart that a symbol
+  comes from a delayed feed by returning `delay_minutes` from `getSymbolInfo`. The status line
+  then shows an amber **Delayed 10m** tag (with the provider's number) after the market badge,
+  so nobody mistakes a ten-minute-old candle for the live price. The tag hides together with
+  the market badge and during a bar replay.
+- **Give a side panel its own stop on the phone layout.** Register a panel with
+  `mobile: 'bar'` and phones show it as a one-tap icon at the end of the bottom bar, lit while
+  the panel is open, instead of a row in the three-dots menu. To make room, the new
+  `mobileSettings: 'menu'` workspace option moves **Chart settings** from the gear stop into the
+  three-dots menu, right after Chart type. Both default to today's layout.
+- **Switch timeframes on a phone with one press.** Press and hold the timeframe button in the
+  mobile bottom bar and a wheel of timeframes rolls up from it. Slide up for longer
+  timeframes, hold the finger below where it started to roll toward shorter ones, and release
+  to switch. A plain tap still opens the full timeframe sheet.
+- **Star your favorite indicators.** Every indicator in the Indicators dialog has a star.
+  Starred indicators move to a **Favorites** group at the top of the list, in alphabetical
+  order, so the ones you use most are always one click away. The stars are saved with the
+  workspace, so they come back after a reload and follow your account in the self-hosted app.
+
 ## [0.8.5]
 
 ### Added

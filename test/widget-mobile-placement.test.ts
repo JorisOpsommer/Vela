@@ -65,4 +65,62 @@ describe('mobile placement', () => {
         expect(rows).toEqual(['Chart type', 'Layout', 'Replay', 'Data window', 'Tool']);
         drawer.destroy();
     });
+
+    it('a panel placed on the bar gets its own stop after More, lit while open; the gear can go', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const bar = new MobileBar(host, {
+            symbol: 'NYMEX:BRENT',
+            timeframe: '60',
+            onSymbolClick: () => {},
+            onTimeframeClick: () => {},
+            onMoreClick: () => {},
+            getContext: () => ({}) as WidgetContext,
+        });
+        const toggled: string[] = [];
+        bar.setPanelButtons(
+            [
+                { id: 'dataWindow', title: 'Data window', icon: 'datawindow' },
+                { id: 'wl', title: 'Watchlist', icon: 'gear', mobile: 'bar' },
+            ],
+            (id) => toggled.push(id),
+        );
+        const labels = [...host.querySelectorAll('.vela-mobilebar button')].map((b) => b.getAttribute('aria-label'));
+        expect(labels).not.toContain('Chart settings'); // no onSettingsClick ⇒ no gear stop
+        expect(labels).not.toContain('Data window'); // menu-placed panels stay in the drawer
+        expect(labels.slice(-2)).toEqual(['More', 'Watchlist']); // the stop takes the gear's place
+
+        const stop = host.querySelector<HTMLButtonElement>('.vela-mb-panel')!;
+        stop.click();
+        expect(toggled).toEqual(['wl']);
+        bar.setPanelActive('wl', true);
+        expect(stop.classList.contains('vela-mb-on')).toBe(true);
+        expect(stop.getAttribute('aria-pressed')).toBe('true');
+        bar.setPanelActive('wl', false);
+        expect(stop.classList.contains('vela-mb-on')).toBe(false);
+    });
+
+    it('the menu carries Chart settings right after Chart type when the shell moved it there', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        let opened = 0;
+        const drawer = new MoreDrawer({
+            host,
+            canUndo: () => false,
+            canRedo: () => false,
+            priceStyles: () => [{ id: 'candles', label: 'Candles' }],
+            priceStyle: () => 'candles',
+            onPriceStyle: () => {},
+            onSettings: () => void (opened += 1),
+            panels: () => [],
+            onTogglePanel: () => {},
+            actions: () => [],
+        });
+        drawer.open();
+        const rows = [...document.querySelectorAll<HTMLElement>('.vela-md-row')];
+        expect(rows.map((r) => r.querySelector('.vela-md-row-label')?.textContent)).toEqual(['Chart type', 'Chart settings']);
+        rows[1]!.click();
+        expect(opened).toBe(1);
+        drawer.destroy();
+    });
 });

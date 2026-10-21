@@ -49,6 +49,8 @@ async function main(): Promise<void> {
         theme: 'dark',
         timezone,
         autofocus: true,
+        // Phones: the watchlist takes the gear's stop; Chart settings moves into the menu.
+        mobileSettings: 'menu',
         persist: WORKSPACE_KEY,
         storage,
         providers: { market: () => provider },

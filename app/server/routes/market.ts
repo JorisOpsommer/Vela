@@ -40,6 +40,8 @@ export function symbolInfo(e: CatalogEntry, extended: string | undefined) {
         session: e.session,
         ...(extended ? { session_extended: extended } : {}),
         ...(e.class === 'power' ? { attribution: ENERGY_ATTRIBUTION } : {}),
+        // The chart's status line shows a "Delayed Nm" tag for this.
+        ...(e.delayMinutes ? { delay_minutes: e.delayMinutes } : {}),
     };
 }
 
@@ -49,7 +51,7 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
     let symbolsJson: { body: string; etag: string; at: number } | null = null;
     app.get('/api/symbols', async (req, reply) => {
         if (!symbolsJson || Date.now() - symbolsJson.at > 3_600_000) {
-            const rows = market.catalog.all().map((e) => ({ ticker: e.symbol, description: e.name, type: e.class, prefix: e.prefix, ...(e.delayMinutes ? { delayMinutes: e.delayMinutes } : {}) }));
+            const rows = market.catalog.all().map((e) => ({ ticker: e.symbol, description: e.name, type: e.class, prefix: e.prefix }));
             const body = JSON.stringify(rows);
             symbolsJson = { body, etag: `"s${rows.length}-${body.length}"`, at: Date.now() };
         }

@@ -144,6 +144,9 @@ export interface WorkspaceState {
     favorites?: string[];
     /** Favorite timeframes (the topbar's quick-switch chips) — a SHARED preference. */
     timeframeFavorites?: string[];
+    /** Starred indicators (the picker lists them first) — a SHARED preference. Keys are
+     *  `native:<type>` for built-ins and `script:<name>` for manifest entries. */
+    indicatorFavorites?: string[];
     /** The drawing tools' remembered settings, magnet and stay mode — a SHARED preference. */
     drawingTools?: DrawingToolsState;
     /** The docked side panels: which one is open, and the widths the user dragged. */
@@ -211,6 +214,10 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     if (Array.isArray(d.timeframeFavorites)) {
         const favs = d.timeframeFavorites.filter((f): f is string => typeof f === 'string');
         if (favs.length > 0) out.timeframeFavorites = favs;
+    }
+    if (Array.isArray(d.indicatorFavorites)) {
+        const favs = d.indicatorFavorites.filter((f): f is string => typeof f === 'string');
+        if (favs.length > 0) out.indicatorFavorites = favs;
     }
     const tools = sanitizeDrawingTools(d.drawingTools);
     if (tools) out.drawingTools = tools;

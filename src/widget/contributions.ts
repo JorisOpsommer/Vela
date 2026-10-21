@@ -229,6 +229,10 @@ export interface SidePanelDescriptor {
      *  it (default false). For panels that are sometimes the main work surface, like an
      *  editor; the contribution can drive it too ({@link SidePanelHeader.setMaximized}). */
     maximizable?: boolean;
+    /** Where the panel's toggle goes on the MOBILE layout: `'menu'` (default) is a row in
+     *  the three-dots drawer; `'bar'` is its own icon stop at the end of the bottom bar —
+     *  for a panel used often enough to deserve one tap (a watchlist). */
+    mobile?: 'bar' | 'menu';
     mount(ctx: WidgetContext, body: HTMLElement, header: SidePanelHeader): SidePanelHandle | void;
 }
 
@@ -237,6 +241,8 @@ export interface SidePanelButton {
     id: string;
     title: string;
     icon: string;
+    /** The descriptor's mobile placement (absent = `'menu'`). */
+    mobile?: 'bar' | 'menu';
 }
 
 const registry = new Map<string, WidgetActionDescriptor>();

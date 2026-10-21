@@ -33,7 +33,7 @@ import { ShortcutsHelp } from '../widget/shortcuts-help';
 import { Toast } from '../widget/toast';
 import { Glider, ZOOM_IN, ZOOM_OUT, PAN_FAST } from '../widget/glide';
 import { toolShortcutHints } from '../widget/tool-shortcuts';
-import { legendActionsProviderFor, legendCalloutsProviderFor, mobilePlacement, statePersistenceHandlers, topbarActionOverride, widgetActions, widgetAttachments, type WidgetActionDescriptor } from '../widget/contributions';
+import { legendActionsProviderFor, legendCalloutsProviderFor, mobilePlacement, statePersistenceHandlers, topbarActionOverride, widgetActions, widgetAttachments, type SidePanelButton, type WidgetActionDescriptor } from '../widget/contributions';
 import { resolveTopbarComposition, topbarHas, TOPBAR_BUILTIN_IDS, type ResolvedTopbarComposition } from '../widget/topbar-composition';
 import { LayoutModeController, type LayoutMode } from '../widget/layout-mode';
 import { MobileBar } from '../widget/mobile-bar';
@@ -336,6 +336,7 @@ export class VelaWorkspace {
     private toolDefsBusy = false;
     /** Favorite timeframes — the shared topbar's quick-switch chips, one set for the grid. */
     private tfFavs: string[] = [];
+    private indFavs: string[] = [];
     /** Live sync configuration (mutable copy of the option). */
     private readonly syncOpts: SyncOptions = {};
     // ── persistence (state surface + adapter plumbing) ──
@@ -388,6 +389,8 @@ export class VelaWorkspace {
     /** Writes `data-layout` on the root and pushes mode flips into every cell's renderer. */
     private layoutCtl!: LayoutModeController;
     private readonly mobileBar: MobileBar | null;
+    /** The dock's latest toggle group — replayed into the mobile bar once it exists. */
+    private panelButtons: { buttons: readonly SidePanelButton[]; onClick: (id: string) => void } | null = null;
     private readonly drawingPill: DrawingPill | null;
     private tfDrawer: TimeframeDrawer | null = null;
     private drawingsDrawer: DrawingsDrawer | null = null;
@@ -451,6 +454,7 @@ export class VelaWorkspace {
         this.timezone = boot?.timezone ?? opts.timezone ?? 'Etc/UTC';
         if (boot?.favorites) this.favs = [...boot.favorites];
         if (boot?.timeframeFavorites) this.tfFavs = [...boot.timeframeFavorites];
+        if (boot?.indicatorFavorites) this.indFavs = [...boot.indicatorFavorites];
         if (boot?.drawingTools) this.adoptDrawingTools(boot.drawingTools);
         const sync = boot?.sync ?? opts.sync;
         for (const kind of SYNC_KINDS) this.applySyncSetting(kind, sync?.[kind]);
@@ -515,6 +519,8 @@ export class VelaWorkspace {
                       onChart: () => this.active.onChartRows(),
                       onAdd: (i) => this.active.addFromLibrary(i),
                       onRemove: (i) => this.active.removeFromChart(i),
+                      favorites: () => this.indFavs,
+                      onFavorite: (key, on) => this.setIndicatorFavorite(key, on),
                       onOpenChange: (open) => {
                           // Same rule as the symbol search: the renderer's in-chart dialogs never see
                           // an outside-dismiss from a topbar dialog — close them on every cell.
@@ -600,7 +606,21 @@ export class VelaWorkspace {
         // One dock for the WHOLE grid (the panels follow the active cell), owning the built-ins,
         // the contributed panels, the single-open rule and the topbar's toggle group.
         this.dock = new PanelDock(main, {
-            chrome: this.topbar,
+            // Both size classes show the panel toggles: the topbar's group, and the mobile
+            // bar's stops for panels placed there. The mobile bar is built later — the last
+            // group is kept so it can catch up (see below).
+            chrome: {
+                setPanelButtons: (buttons, onClick) => {
+                    this.topbar.setPanelButtons(buttons, onClick);
+                    // A composition without 'panels' hides the toggles on both size classes.
+                    this.panelButtons = { buttons: topbarHas(this.topbarComp, 'panels') ? buttons : [], onClick };
+                    this.mobileBar?.setPanelButtons(this.panelButtons.buttons, onClick);
+                },
+                setPanelActive: (id, open) => {
+                    this.topbar.setPanelActive(id, open);
+                    this.mobileBar?.setPanelActive(id, open);
+                },
+            },
             context: () => this.context(),
             changed: () => this.markStateDirty(),
         });
@@ -723,6 +743,11 @@ export class VelaWorkspace {
                       timeframe: '60',
                       onSymbolClick: () => this.symbolPicker.open(),
                       onTimeframeClick: () => this.openTimeframeDrawer(),
+                      timeframeWheel: {
+                          timeframes: () => this.opts.timeframes ?? DEFAULT_TIMEFRAMES,
+                          current: () => this.active.timeframe,
+                          onSelect: (tf) => this.setActiveTimeframe(tf),
+                      },
                       // Same visibility truth as the desktop bar: composition-hidden
                       // indicators lose their mobile stop too; an override takes it over.
                       ...(topbarHas(this.topbarComp, 'indicators') && (picker || this.indicatorsOverride)
@@ -734,9 +759,14 @@ export class VelaWorkspace {
                       // per-cell hover cluster has no cursor to reveal it on mobile).
                       ...(this.monoLayout ? {} : { onMaximizeClick: () => this.toggleMobileMaximize() }),
                       onMoreClick: () => this.openMoreDrawer(),
-                      onSettingsClick: () => this.active.chart.renderer.openSettings(),
+                      ...(opts.mobileSettings === 'menu' ? {} : { onSettingsClick: () => this.active.chart.renderer.openSettings() }),
                   })
                 : null;
+        if (this.mobileBar && this.panelButtons) {
+            this.mobileBar.setPanelButtons(this.panelButtons.buttons, this.panelButtons.onClick);
+            const open = this.dock.openId;
+            if (open) this.mobileBar.setPanelActive(open, true);
+        }
         // One pill for the whole grid — rebound to the active cell on every projection.
         this.drawingPill = this.drawingsEnabled ? new DrawingPill(this.gridEl) : null;
 
@@ -983,6 +1013,7 @@ export class VelaWorkspace {
         if (this.activeId) state.activeCellId = this.activeId;
         if (this.favs.length > 0) state.favorites = [...this.favs];
         if (this.tfFavs.length > 0) state.timeframeFavorites = [...this.tfFavs];
+        if (this.indFavs.length > 0) state.indicatorFavorites = [...this.indFavs];
         const tools = this.drawingToolsState();
         if (tools) state.drawingTools = tools;
         if (this.trackSizes.size > 0) state.trackSizes = Object.fromEntries([...this.trackSizes].map(([k, v]) => [k, { ...v }]));
@@ -1027,6 +1058,10 @@ export class VelaWorkspace {
         if (st.timeframeFavorites) {
             this.tfFavs = [...st.timeframeFavorites];
             this.topbar.setTimeframeFavorites(this.tfFavs);
+        }
+        if (st.indicatorFavorites) {
+            this.indFavs = [...st.indicatorFavorites];
+            this.indicatorPicker?.sync();
         }
         // Absent in documents written before the dock existed — those leave the column closed.
         this.dock.applyState(st.panels);
@@ -2224,6 +2259,14 @@ export class VelaWorkspace {
         this.markStateDirty();
     }
 
+    /** Star/unstar an indicator — a WORKSPACE preference like the timeframe stars; the
+     *  picker lists starred entries first and the set persists with the document. */
+    private setIndicatorFavorite(key: string, on: boolean): void {
+        if (on === this.indFavs.includes(key)) return;
+        this.indFavs = on ? [...this.indFavs, key] : this.indFavs.filter((f) => f !== key);
+        this.markStateDirty();
+    }
+
     /** The mode flipped (container resized across the breakpoint, or a coarse-pointer
      *  change). Close the open surfaces — a desktop card must not linger over the
      *  mobile chrome (and vice versa) — and re-present every cell's own chrome. */
@@ -2231,6 +2274,7 @@ export class VelaWorkspace {
         this.symbolPicker.close();
         this.indicatorPicker?.close();
         this.tfDrawer?.close();
+        this.mobileBar?.closeTimeframeWheel();
         this.drawingsDrawer?.close();
         this.moreDrawer?.close();
         this.timezoneDrawer?.close();
@@ -2305,7 +2349,9 @@ export class VelaWorkspace {
             priceStyles: () => priceStyleIds().map((id) => ({ id, label: priceStyleLabel(id), icon: priceStyleIcon(id) })),
             priceStyle: () => this.active.priceStyle,
             onPriceStyle: (id) => this.active.setPriceStyle(id),
-            panels: () => (has('panels') ? [...this.dock.list()] : []),
+            ...(this.opts.mobileSettings === 'menu' ? { onSettings: () => this.active.chart.renderer.openSettings() } : {}),
+            // Panels with their own bottom-bar stop are not listed twice.
+            panels: () => (has('panels') ? this.dock.list().filter((p) => p.mobile !== 'bar') : []),
             onTogglePanel: (id) => this.dock.toggle(id),
             ...(has('alerts') ? { alerts: () => this.alerts.map((a) => ({ title: `${a.source} · ${a.title}`, message: a.message, time: a.time })) } : {}),
             // Actions placed on the bottom bar (left-aligned by default) have their stop

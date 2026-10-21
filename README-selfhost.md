@@ -178,6 +178,7 @@ ISE), CC BY 4.0. The chart credits the source in the top bar whenever a power pr
 and the data providers page lists it too.
 
 Some symbols come from a feed that runs behind the market (for example 10 minutes for
-NYMEX futures, 15 for the VIX). Their chart shows **Delayed N min** in the top bar. Set
+NYMEX futures, 15 for the VIX). Their chart shows an amber **Delayed Nm** tag next to the
+symbol name. Set
 `delayMinutes` per instrument in `app/config/tickers.json`; US stocks and crypto are real
 time and need none.

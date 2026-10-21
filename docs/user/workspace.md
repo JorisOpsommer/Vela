@@ -297,7 +297,9 @@ The state SURFACE is the product; persistence is an adapter on top of it.
 ```ts
 const state = ws.getState();
 // → { version: 1, layout, trackSizes?, activeCellId?, sync?, timezone?, favorites?,
-//     timeframeFavorites?, drawingTools?, charts: […], ext? }
+//     timeframeFavorites?, indicatorFavorites?, drawingTools?, charts: […], ext? }
+// `indicatorFavorites` = the indicators starred in the picker, which lists them first
+// (`native:<type>` for built-ins, `script:<name>` for manifest entries).
 // `drawingTools` = { defaults?, templates?, magnet?, stay? }: each drawing tool's remembered
 // settings (what its next drawing starts from), its saved styles, the magnet and
 // stay-in-drawing-mode — shared by every chart of the workspace, like the favorite stars.
@@ -413,6 +415,7 @@ silently reorder them).
 | `topbar` | defaults | Declarative topbar composition — `{ left, right }` lists of the VISIBLE entries, in order (see [Composing the topbar](#composing-the-topbar)). |
 | `indicatorPicker` | `true` | **Deprecated (removal in 0.7.0).** `false` removes the built-in indicator dialog's entry points. Replace it with the composition (omit `'indicators'` from `topbar.left` — same effect) or a plugin [slot override](../contributing/plugin-sdk.md#replacing-a-built-in-button--slot-overrides). |
 | `layoutMode` | `'auto'` | Chrome size class — see [Mobile](#mobile). |
+| `mobileSettings` | `'bar'` | Where Chart settings lives on mobile: the gear stop at the end of the bottom bar, or `'menu'` — a **Chart settings** row in the three-dots sheet, right after Chart type (see [Mobile](#mobile)). |
 | `autofocus` | `false` | Focus the active chart on mount (off: an embedded workspace should not steal the page's focus). |
 | `persist` / `storage` | off / localStorage | State persistence (see above). |
 
@@ -499,10 +502,12 @@ they work from the very first keystroke, before any click.
   as the settings dialog's Status line tab; hiding the name also hides the
   venue/timeframe beside it) plus hide/show for the chart's price series. In
   multi-cell grids it stays on one row — segments that don't fit the cell hide instead
-  of wrapping (bar change first, then venue/timeframe, then the market badge; the logo
-  + ticker always stay). While the chart replays past bars, the market badge gives way to
-  a replay badge (the replay icon on the inverse chip), and the market status returns when
-  the replay ends.
+  of wrapping (bar change first, then venue/timeframe, then the delay tag, then the market
+  badge; the logo + ticker always stay). While the chart replays past bars, the market badge
+  gives way to a replay badge (the replay icon on the inverse chip), and the market status
+  returns when the replay ends. When the symbol's metadata carries `delay_minutes` (its
+  source publishes late), an amber **Delayed Nm** tag sits after the market badge; it hides
+  with the badge and during a replay.
 - **Object tree** — a docked panel grouping every item under the pane it belongs to. Each pane is
   one column read top to bottom as front to back: its drawings, its indicators and, in the main
   pane, the price series, all in draw order — new indicators and new drawings both start under
@@ -679,13 +684,18 @@ presentation. Sheets and full-screen pickers act on the **active cell**.
 What changes on mobile:
 
 - **One bottom bar replaces both desktop bars**, left to right: the symbol button
-  (full-screen symbol search), the timeframe button (a bottom sheet with the date-range
-  presets on top and the timeframe grid below), indicators (the full-screen picker),
+  (full-screen symbol search), the timeframe button (a tap opens a bottom sheet with the
+  date-range presets on top and the timeframe grid below; a press and hold opens a
+  timeframe wheel — slide up for longer timeframes, keep the finger below its start to
+  roll toward shorter ones, release to switch), indicators (the full-screen picker),
   drawings (a bottom sheet with a search bar, the tool groups as scrollable tabs, and
   favorite stars), a three-dots sheet (undo/redo, screenshot, chart type, the side
   panels, time zone, alerts, contributed topbar actions and — multi-chart grids only —
   a **Layout** entry with the same tap-to-apply grid canvas as the desktop dropdown,
-  the sync switches below it), and chart settings.
+  the sync switches below it), and chart settings (or, with `mobileSettings: 'menu'`, a
+  **Chart settings** row in the three-dots sheet instead). A contributed side panel
+  registered with `mobile: 'bar'` gets its own stop at the end of the bar — lit while the
+  panel is open — instead of a row in the three-dots sheet.
 - **The docked drawing toolbar hides.** Picking a tool from the drawings sheet arms it
   and shows a floating pill over the chart — the armed tool's icon, the magnet cycle,
   stay-in-drawing-mode, the eraser, and ✕ to disarm. Favorites keep working (stars in

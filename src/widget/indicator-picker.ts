@@ -16,6 +16,12 @@ export interface IndicatorRow {
     beta?: boolean;
 }
 
+/** The durable favorite key of a library row — natives by type, scripts by name (the
+ *  prefixes keep a script named like a native type from sharing its star). */
+export function indicatorFavoriteKey(r: IndicatorRow): string {
+    return r.native && r.nativeType ? `native:${r.nativeType}` : `script:${r.name}`;
+}
+
 const STYLE_ID = 'vela-widget-indpicker';
 const CSS = `
 .vela-ip-searchrow {
@@ -87,6 +93,21 @@ const CSS = `
     font-size: var(--vela-font-size-md);
 }
 .vela-ip-trash:hover { color: var(--vela-down); background: var(--vela-hover); }
+/* Favorite star: faint at rest (a touch screen has no hover to reveal it), brighter on
+   row hover, and a starred row keeps its filled star in the highlight color. */
+.vela-ip-star {
+    all: unset;
+    display: inline-flex;
+    cursor: pointer;
+    color: var(--vela-fg-muted);
+    padding: 2px 4px;
+    border-radius: var(--vela-radius-sm);
+    opacity: 0.35;
+    transition: opacity 0.1s ease, background 0.1s ease;
+}
+.vela-ip-row:hover .vela-ip-star { opacity: 0.7; }
+.vela-ip-star:hover { opacity: 1; background: var(--vela-hover-strong); }
+.vela-ip-star.vela-fav { opacity: 0.95; color: var(--vela-highlight); }
 .vela-ip-empty { padding: var(--vela-space-3); color: var(--vela-fg-muted); text-align: center; }
 `;
 
@@ -97,6 +118,10 @@ export interface IndicatorPickerOptions {
     onChart: () => readonly IndicatorRow[];
     onAdd: (libraryIndex: number) => void;
     onRemove: (instanceIndex: number) => void;
+    /** Starred library rows by {@link indicatorFavoriteKey} — listed first, alphabetically. */
+    favorites?: () => readonly string[];
+    /** Star toggle. Omitted ⇒ no stars (the host owns and persists the favorite set). */
+    onFavorite?: (key: string, on: boolean) => void;
     onOpenChange?: (open: boolean) => void;
     host?: HTMLElement;
 }
@@ -142,10 +167,13 @@ export class IndicatorPicker {
             },
         });
         this.list.addEventListener('click', (e) => {
+            const star = (e.target as HTMLElement).closest<HTMLElement>('.vela-ip-star');
             const trash = (e.target as HTMLElement).closest<HTMLElement>('.vela-ip-trash');
             const row = (e.target as HTMLElement).closest<HTMLElement>('.vela-ip-row');
             if (!row) return;
-            if (trash) {
+            if (star) {
+                this.opts.onFavorite?.(star.dataset.key!, star.getAttribute('aria-pressed') !== 'true');
+            } else if (trash) {
                 this.opts.onRemove(Number(row.dataset.instance));
             } else if (row.dataset.library !== undefined) {
                 this.opts.onAdd(Number(row.dataset.library));
@@ -178,6 +206,8 @@ export class IndicatorPicker {
         const instances = this.opts.onChart();
         this.list.replaceChildren();
         const match = (r: IndicatorRow): boolean => !q || r.name.toLowerCase().includes(q);
+        const stars = this.opts.onFavorite !== undefined;
+        const favs = new Set(stars ? (this.opts.favorites?.() ?? []) : []);
 
         const rowEl = (r: IndicatorRow, opts: { library?: number; instance?: number }): HTMLElement => {
             const row = doc.createElement('div');
@@ -209,6 +239,17 @@ export class IndicatorPicker {
                 trash.title = 'Remove from chart';
                 row.appendChild(trash);
             }
+            if (opts.library !== undefined && stars) {
+                const key = indicatorFavoriteKey(r);
+                const on = favs.has(key);
+                const star = doc.createElement('button');
+                star.className = 'vela-ip-star' + (on ? ' vela-fav' : '');
+                star.dataset.key = key;
+                star.appendChild(iconEl(on ? 'star-filled' : 'star', doc));
+                star.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+                star.setAttribute('aria-pressed', on ? 'true' : 'false');
+                row.appendChild(star);
+            }
             return row;
         };
 
@@ -225,15 +266,30 @@ export class IndicatorPicker {
             this.list.appendChild(card);
         }
 
+        // Starred rows lead, alphabetically, and leave their category. Rows keep their
+        // ORIGINAL library index — the host adds by it.
+        const starred: Array<readonly [IndicatorRow, number]> = [];
         // The library, grouped by category — clicking ADDS an instance (repeatable).
         const byCat = new Map<string, Array<readonly [IndicatorRow, number]>>();
         library.forEach((r, i) => {
             if (!match(r)) return;
+            if (favs.has(indicatorFavoriteKey(r))) {
+                starred.push([r, i] as const);
+                return;
+            }
             const cat = r.category ?? 'General';
             const bucket = byCat.get(cat) ?? [];
             bucket.push([r, i] as const);
             byCat.set(cat, bucket);
         });
+        if (starred.length) {
+            starred.sort(([a], [b]) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+            const title = doc.createElement('div');
+            title.className = 'vela-ip-group';
+            title.textContent = 'Favorites';
+            this.list.appendChild(title);
+            for (const [r, i] of starred) this.list.appendChild(rowEl(r, { library: i }));
+        }
         for (const [cat, bucket] of byCat) {
             const title = doc.createElement('div');
             title.className = 'vela-ip-group';
@@ -241,7 +297,7 @@ export class IndicatorPicker {
             this.list.appendChild(title);
             for (const [r, i] of bucket) this.list.appendChild(rowEl(r, { library: i }));
         }
-        if (!onChart.length && byCat.size === 0) {
+        if (!onChart.length && !starred.length && byCat.size === 0) {
             const empty = doc.createElement('div');
             empty.className = 'vela-ip-empty';
             empty.textContent = library.length ? 'No indicators match.' : 'No indicators in the manifest.';

@@ -714,6 +714,7 @@ registerSidePanel({
     maxWidth: 560,
     overlay: false,              // true floats the panel OVER the chart (with a pin to dock it)
     maximizable: false,          // true adds a Maximize/Restore button to the header
+    mobile: 'menu',              // phones: a three-dots row (default), or 'bar' — its own bottom-bar stop
     mount: (ctx, body, header) => {
         const list = document.createElement('div');
         body.appendChild(list);                       // `body` is the panel's scrolling area

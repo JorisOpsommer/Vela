@@ -1,6 +1,7 @@
 // The three-dots drawer (mobile) — the catch-all for everything the hidden topbar and
 // desktop bottombar used to carry: undo/redo/screenshot as an action row, then rows for
-// chart type, the multi-chart layout (workspace shells), the side panels (data window,
+// chart type (and Chart settings, when the shell moved it off the bottom bar), the
+// multi-chart layout (workspace shells), the side panels (data window,
 // object tree, contributed), alerts, and every contributed topbar action. Chart type,
 // layout and alerts open as IN-DRAWER sub-views with a back button — a drawer inside a
 // drawer would stack sheets. Time zone lives on a long-press of the time axis (see
@@ -103,6 +104,8 @@ export interface MoreDrawerOptions {
     priceStyles: () => Array<{ id: string; label: string; icon?: string }>;
     priceStyle: () => string;
     onPriceStyle: (id: string) => void;
+    /** Opens Chart settings — omitted ⇒ no row (the bottom bar keeps its gear stop). */
+    onSettings?: () => void;
     /** Docked side panels (built-in + contributed), toggled by id. */
     panels: () => Array<{ id: string; title: string; icon: string }>;
     onTogglePanel: (id: string) => void;
@@ -229,6 +232,18 @@ export class MoreDrawer {
         list.className = 'vela-md-list';
         const current = this.opts.priceStyles().find((s) => s.id === this.opts.priceStyle());
         list.appendChild(this.row(doc, 'Chart type', { icon: 'style-line', value: current?.label, chevron: true, onClick: () => this.show('style') }));
+        const onSettings = this.opts.onSettings;
+        if (onSettings) {
+            list.appendChild(
+                this.row(doc, 'Chart settings', {
+                    icon: 'gear',
+                    onClick: () => {
+                        this.drawer.hide();
+                        onSettings();
+                    },
+                }),
+            );
+        }
         if (this.opts.layout) {
             const shape = this.opts.layout.shape();
             const value = shape ? `${shape.cols} × ${shape.rows}` : this.opts.layout.presets().find((p) => p.checked)?.label;

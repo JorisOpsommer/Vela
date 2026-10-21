@@ -72,6 +72,8 @@ export function watchlistPanel(storage: ServerStorage, provider: ServerProvider)
         resizable: true,
         minWidth: 240,
         maxWidth: 520,
+        // Phones: a one-tap stop on the bottom bar instead of a row in the three-dots menu.
+        mobile: 'bar',
         mount(ctx: WidgetContext, body: HTMLElement, header) {
             return new WatchlistView(ctx, body, header.slot, storage, provider).handle();
         },

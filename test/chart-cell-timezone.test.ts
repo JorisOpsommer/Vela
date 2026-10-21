@@ -135,7 +135,7 @@ class TrackedZoneRenderer extends ZoneRenderer {
 
 function makeFeed(): MultiProviderFeed {
     const feed = new MultiProviderFeed(new BarStore());
-    void feed.registerProvider('cme', fakeProvider(['ES1!'], { timezone: 'America/Chicago', session: '1700-1600' }));
+    void feed.registerProvider('cme', fakeProvider(['ES1!'], { timezone: 'America/Chicago', session: '1700-1600', delay_minutes: 10 }));
     void feed.registerProvider('binance', fakeProvider(['BTCUSDT'], { timezone: 'Etc/UTC', session: '24x7' }));
     void feed.registerProvider('bare', fakeProvider(['XYZ'], null)); // no metadata at all
     return feed;
@@ -267,6 +267,25 @@ describe('ChartCell — the exchange time-zone rule', () => {
         cell.applyTimezone();
         cell.applyTimezone();
         expect(renderer.writes.length).toBe(before);
+        cell.destroy();
+    });
+});
+
+describe('ChartCell — symbol metadata in the status line', () => {
+    it("shows the symbol's delay_minutes as the delayed-data tag, and drops it on a real-time symbol", async () => {
+        const cell = makeCell('cme:ES1!', makeDeps(makeFeed(), () => 'UTC', { statusline: true }));
+        const tag = () => document.querySelector<HTMLElement>('.vela-sl-delay')!;
+        await settle();
+        expect(tag().style.display).toBe('');
+        expect(tag().textContent).toBe('Delayed 10m');
+
+        cell.setSymbol('binance:BTCUSDT'); // its metadata carries no delay
+        await settle();
+        expect(tag().style.display).toBe('none');
+
+        cell.setSymbol('cme:ES1!');
+        await settle();
+        expect(tag().textContent).toBe('Delayed 10m');
         cell.destroy();
     });
 });

@@ -105,6 +105,20 @@ const CSS = `
 .vela-statusline .vela-sl-market { align-self: center; display: inline-flex; }
 .vela-statusline .vela-sl-market > [hidden] { display: none !important; }
 .vela-statusline .vela-sl-replay-badge, .vela-statusline .vela-sl-replay-badge svg { display: block; width: 16px; height: 16px; }
+/* Delayed-data tag — the symbol's source publishes late (SymbolInfo delay_minutes).
+ * Information, not a control: the pre-market amber on a 15% wash, clock + "Delayed 10m". */
+.vela-statusline .vela-sl-delay {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px 1px 4px;
+    border-radius: 999px;
+    font-size: var(--vela-font-size-sm);
+    font-weight: 600;
+    line-height: 16px;
+}
+.vela-statusline .vela-sl-delay svg { display: block; }
 /* Tabular figures: every digit has one advance, so a readout whose text changes only in
  * its digits keeps its width — render() skips the ladder for those (see widthKey). */
 .vela-statusline .vela-sl-values { font-variant-numeric: tabular-nums; }
@@ -281,6 +295,11 @@ export class Statusline {
     /** The replay face — see {@link REPLAY_BADGE_SVG}. */
     private readonly replayBadge: HTMLElement;
     private marketTip!: Tooltip;
+    /** The delayed-data tag — shown while the symbol's data runs late (see {@link setDelay}). */
+    private readonly delayEl: HTMLElement;
+    private delayTip!: Tooltip;
+    /** Minutes the symbol's data runs behind the market; null = real time. */
+    private delayMinutes: number | null = null;
     /** The show-chart eye — visible only while the chart is hidden. */
     private readonly eyeEl: HTMLButtonElement;
     private eyeTip!: Tooltip;
@@ -361,6 +380,11 @@ export class Statusline {
         this.marketEl = doc.createElement('span');
         this.marketEl.className = 'vela-sl-market';
         this.marketEl.append(this.marketBubble.el, this.replayBadge);
+        this.delayEl = doc.createElement('span');
+        this.delayEl.className = 'vela-sl-delay';
+        this.delayEl.style.color = SESSION_PRE;
+        this.delayEl.style.background = `color-mix(in srgb, ${SESSION_PRE} 15%, transparent)`;
+        this.delayEl.style.display = 'none'; // real time until setDelay says otherwise
         this.ohlcEl = doc.createElement('span');
         this.ohlcEl.className = 'vela-sl-ohlc';
         this.changeEl = doc.createElement('span');
@@ -380,7 +404,7 @@ export class Statusline {
         });
         this.identityRow = doc.createElement('span');
         this.identityRow.className = 'vela-sl-row vela-sl-identity';
-        this.identityRow.append(this.avatarEl, this.symbolEl, this.metaEl, this.marketEl);
+        this.identityRow.append(this.avatarEl, this.symbolEl, this.metaEl, this.marketEl, this.delayEl);
         this.valuesRow = doc.createElement('span');
         this.valuesRow.className = 'vela-sl-row vela-sl-values';
         this.valuesRow.append(this.ohlcEl, this.changeEl, this.eyeEl);
@@ -396,6 +420,7 @@ export class Statusline {
         // them AFTER the statusline is in the DOM. The badge's content follows setMarketStatus.
         this.marketTip = new Tooltip(this.marketEl, { content: MARKET_LABELS.open, placement: 'bottom' });
         this.eyeTip = new Tooltip(this.eyeEl, { content: 'Show chart', placement: 'bottom' });
+        this.delayTip = new Tooltip(this.delayEl, { content: '', placement: 'bottom' });
         this.setMarketStatus('open'); // crypto trades continuously (no session model yet)
         this.render();
     }
@@ -429,6 +454,7 @@ export class Statusline {
         this.symbolEl.style.display = seg.symbol ? '' : 'none';
         this.metaEl.style.display = seg.meta ? '' : 'none';
         this.marketEl.style.display = seg.market ? '' : 'none';
+        this.delayEl.style.display = this.delayShown(seg.market) ? '' : 'none';
         this.ohlcEl.style.display = seg.ohlc ? '' : 'none';
         this.changeEl.style.display = seg.change ? '' : 'none';
         this.eyeEl.style.display = seg.eye ? 'inline-flex' : 'none';
@@ -466,6 +492,7 @@ export class Statusline {
         const order: Array<[HTMLElement, boolean]> = [
             [this.valuesRow, hasValues],
             [this.metaEl, seg.meta],
+            [this.delayEl, this.delayShown(seg.market)],
             [this.marketEl, seg.market],
         ];
         for (const [el, shown] of order) {
@@ -511,6 +538,31 @@ export class Statusline {
         if (replaying === this.replaying) return;
         this.replaying = replaying;
         this.dressBadge();
+        this.syncParts();
+    }
+
+    /**
+     * Mark the symbol's data as running `minutes` behind the market (its source publishes
+     * late), or as real time with null / 0. The tag rides with the market badge: it hides
+     * when that part is switched off, and during a replay, where "now" is a past bar.
+     */
+    setDelay(minutes: number | null): void {
+        const m = minutes != null && Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : null;
+        if (m === this.delayMinutes) return;
+        this.delayMinutes = m;
+        if (m != null) {
+            this.delayEl.innerHTML = iconAt('clock', 12);
+            this.delayEl.append(this.el.ownerDocument.createTextNode(`Delayed ${m}m`));
+            this.delayTip.setContent(`Data delayed by ${m} minutes`);
+        } else {
+            this.delayEl.replaceChildren();
+        }
+        this.syncParts();
+        this.fit();
+    }
+
+    private delayShown(marketPart: boolean): boolean {
+        return this.delayMinutes != null && marketPart && !this.replaying;
     }
 
     private dressBadge(): void {
@@ -641,6 +693,7 @@ export class Statusline {
         this.menu = null;
         this.marketTip.destroy();
         this.eyeTip.destroy();
+        this.delayTip.destroy();
         this.marketBubble.destroy();
         this.host.classList.remove('vela-has-statusline', 'vela-sl-stacked-host'); // the legend shift leaves with the line
         this.el.remove();

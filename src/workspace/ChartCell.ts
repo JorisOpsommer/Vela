@@ -236,6 +236,8 @@ export class ChartCell {
     private sessionAvailableFlag = false;
     /** The symbol of the most recent metadata probe — an older one landing late is dropped. */
     private metadataProbeSymbol: string | null = null;
+    /** The symbol whose `delay_minutes` the status line currently shows. */
+    private delaySymbol: string | null = null;
     /** Latched: the symbol's extended tape wraps midnight (an overnight roll market) —
      *  one extended-hours shading phase instead of the pre/post split. */
     private sessionOvernightFlag = false;
@@ -654,6 +656,12 @@ export class ChartCell {
         const chart = this.inner;
         if (!chart || !symbol) return;
         this.metadataProbeSymbol = symbol; // last ask wins — a slow probe must not overwrite a newer verdict
+        // A new symbol drops the old one's delay tag until its own metadata says otherwise;
+        // a re-probe of the same symbol (timeframe switch) keeps it, so nothing flickers.
+        if (symbol !== this.delaySymbol) {
+            this.delaySymbol = null;
+            this.statusline?.setDelay(null);
+        }
         void chart.data.symbolInfo(symbol).then((si) => {
             if (this.inner !== chart || this.metadataProbeSymbol !== symbol) return;
             if (si === undefined && retry) {
@@ -670,6 +678,8 @@ export class ChartCell {
             // `chart.setMarket` directly projects it only at `market:changed`, and the
             // overlays below (shading, settings) read the cell state. That pass follows.
             if (this.state.symbol !== symbol) return;
+            this.delaySymbol = symbol;
+            this.statusline?.setDelay(typeof si?.delay_minutes === 'number' ? si.delay_minutes : null);
             const available = typeof si?.session === 'string' && si.session !== '' && si.session !== '24x7';
             const overnight = parseSessionSpec(si)?.overnight === true;
             const zone = typeof si?.timezone === 'string' && si.timezone !== '' ? si.timezone : undefined;
