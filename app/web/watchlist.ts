@@ -6,6 +6,7 @@ import { api } from './lib/api';
 import type { ServerStorage } from './lib/storage';
 import type { ServerProvider } from './lib/server-provider';
 import { track } from './lib/tracker';
+import { symbolGlyph } from './lib/symbol-glyph';
 
 export interface WatchGroup {
     name: string;
@@ -264,19 +265,18 @@ class WatchlistView {
         row.tabIndex = 0;
         const icon = el('span', 'wl-ico');
         const iconUrl = d ? this.provider.resolveSymbolIcon(d) : undefined;
+        const glyph = symbolGlyph(d ?? { ticker: sym });
+        const img = el('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = iconUrl ?? glyph;
         if (iconUrl) {
-            const img = el('img');
-            img.alt = '';
-            img.loading = 'lazy';
-            img.src = iconUrl;
             img.onerror = () => {
-                img.remove();
-                icon.textContent = sym.slice(0, 1);
+                img.onerror = null;
+                img.src = glyph;
             };
-            icon.append(img);
-        } else {
-            icon.textContent = sym.slice(0, 1);
         }
+        icon.append(img);
         const label = el('span', 'wl-label');
         label.append(el('span', 'wl-sym', sym), el('span', 'wl-name', d?.description ?? ''));
         const last = el('span', 'wl-last', '—');

@@ -1,6 +1,7 @@
 import './pages.css';
 import { api, loadMe } from './lib/api';
 import { mountNav } from './lib/nav';
+import { symbolGlyph } from './lib/symbol-glyph';
 import { barList, donut, fmt, h, heatmap, hideTip, showTip } from './lib/viz';
 
 interface Suggestion {
@@ -52,23 +53,19 @@ const CLASS_LABELS: Record<string, string> = { stock: 'Stocks', etf: 'ETFs', cry
 
 const $ = (id: string) => document.getElementById(id)!;
 
-function logo(symbol: string, cls: string | null, small = false): HTMLElement {
+function logo(symbol: string, cls: string | null, name: string | null, small = false): HTMLElement {
     const box = h('span', `logo${small ? ' sm' : ''}`);
-    const initials = h('span', '', symbol.slice(0, small ? 1 : 2));
-    box.append(initials);
+    const glyph = symbolGlyph({ ticker: symbol, type: cls, description: name });
+    const img = h('img');
+    img.alt = '';
+    img.src = glyph;
     if (cls === 'stock' || cls === 'etf' || cls === 'crypto' || cls == null) {
-        // Attached (hidden) from the start: an image outside the document never loads lazily.
-        const img = h('img');
-        img.alt = '';
-        img.hidden = true;
-        img.onload = () => {
-            initials.remove();
-            img.hidden = false;
-        };
-        img.onerror = () => img.remove();
-        img.src = `/api/logo/${encodeURIComponent(symbol)}`;
-        box.append(img);
+        // The generated icon shows until the real logo has loaded; a miss keeps it.
+        const remote = new Image();
+        remote.onload = () => (img.src = remote.src);
+        remote.src = `/api/logo/${encodeURIComponent(symbol)}`;
     }
+    box.append(img);
     return box;
 }
 
@@ -127,7 +124,7 @@ function suggestionCard(s: Suggestion, i: number): HTMLElement {
     const label = h('div');
     label.style.minWidth = '0';
     label.append(h('div', 'sym', s.symbol), h('div', 'nm', s.name));
-    top.append(logo(s.symbol, null), label);
+    top.append(logo(s.symbol, null, s.name), label);
     const meta = h('div', 'meta', `${s.sector} · ${s.industry}`);
     const match = h('div', 'match');
     const track = h('span', 'track');
@@ -213,7 +210,7 @@ function render(d: Insights): void {
 
     barList(
         $('top-symbols'),
-        d.topSymbols.map((s) => ({ label: s.symbol, value: s.opens + s.minutes * 0.5, display: `${s.opens} · ${s.minutes}m`, title: s.name, lead: logo(s.symbol, s.cls, true) })),
+        d.topSymbols.map((s) => ({ label: s.symbol, value: s.opens + s.minutes * 0.5, display: `${s.opens} · ${s.minutes}m`, title: s.name, lead: logo(s.symbol, s.cls, s.name, true) })),
         { fill: 'linear-gradient(90deg, #7b5cff, #2f8bff, #1fd1a5)' },
     );
     const themes = $('themes');
