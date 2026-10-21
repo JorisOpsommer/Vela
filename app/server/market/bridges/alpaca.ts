@@ -57,6 +57,13 @@ const SIP_DELAY_MS = 15 * 60_000;
 const TAIL_WINDOW_MS = 20 * 60_000;
 const MAX_PAGES = 12;
 const DAY_MS = 86_400_000;
+/** Intraday history is fetched in fixed windows of about one page each (a page holds
+ *  roughly ten thousand minutes of tape, whatever the bar size). */
+const WINDOW_MS = 14 * DAY_MS;
+const CRYPTO_WINDOW_MS = 7 * DAY_MS;
+/** About eight months: a 1000-bar hourly chart fits; coarser ones get what reaches. */
+const MAX_WINDOWS = 18;
+const WINDOW_CONCURRENCY = 4;
 
 function toBar(r: RawBar): OHLCV {
     return { time: Date.parse(r.t), open: r.o, high: r.h, low: r.l, close: r.c, volume: r.v };
@@ -153,10 +160,10 @@ export class AlpacaBridge implements Bridge {
 
         let bars: OHLCV[];
         if (crypto) {
-            bars = await this.fetchRange('crypto', ticker, baseTf, from, to);
+            bars = await this.fetchHistory('crypto', ticker, base, baseTf, from, to);
         } else {
             const sipEnd = Math.min(to, now - SIP_DELAY_MS);
-            const history = sipEnd > from ? await this.fetchRange('sip', ticker, baseTf, from, sipEnd) : [];
+            const history = sipEnd > from ? await this.fetchHistory('sip', ticker, base, baseTf, from, sipEnd) : [];
             const tail = to > now - SIP_DELAY_MS - 60_000 ? await this.fetchTail(ticker, base, baseTf, now) : [];
             bars = mergeTail(history, tail);
             if (base.unit === 'minute') bars = await this.filterSession(bars, regular, from, to);
@@ -180,6 +187,31 @@ export class AlpacaBridge implements Bridge {
         const from = Math.floor((now - windowMs) / 60_000) * 60_000;
         const key = `tail|${ticker}|${baseTf}`;
         return this.barCache.wrap(key, 5_000, () => this.fetchRange('iex', ticker, baseTf, from, now));
+    }
+
+    /**
+     * Intraday history in fixed windows aligned to the epoch, newest first: one long
+     * ascending walk runs out of pages at the NEW end and leaves a hole before the tail.
+     * Past windows never change, so a repeat load re-fetches only the newest one.
+     */
+    private async fetchHistory(feed: 'sip' | 'crypto', ticker: string, base: Timeframe, baseTf: string, from: number, to: number): Promise<OHLCV[]> {
+        if (base.unit !== 'minute' || base.n >= 1440) return this.fetchRange(feed, ticker, baseTf, from, to);
+        const span = feed === 'crypto' ? CRYPTO_WINDOW_MS : WINDOW_MS;
+        const windows: Array<[number, number]> = [];
+        for (let start = Math.floor((to - 1) / span) * span, end = to; end > from && windows.length < MAX_WINDOWS; end = start, start -= span) windows.push([start, end]);
+        const parts: OHLCV[][] = new Array(windows.length);
+        let next = 0;
+        const worker = async () => {
+            while (next < windows.length) {
+                const i = next++;
+                parts[i] = await this.fetchRange(feed, ticker, baseTf, windows[i]![0], windows[i]![1]);
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(WINDOW_CONCURRENCY, windows.length) }, worker));
+        // Windows share their edges: a bar on one appears in both.
+        const byTime = new Map<number, OHLCV>();
+        for (const part of parts.reverse()) for (const b of part) byTime.set(b.time, b);
+        return [...byTime.values()].sort((a, b) => a.time - b.time);
     }
 
     private async fetchRange(feed: 'sip' | 'iex' | 'crypto', ticker: string, timeframe: string, from: number, to: number): Promise<OHLCV[]> {
