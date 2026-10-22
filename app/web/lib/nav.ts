@@ -6,6 +6,7 @@ const TABS: Array<{ href: string; label: string }> = [
     { href: '/', label: 'Charts' },
     { href: '/insights', label: 'Insights' },
     { href: '/stats', label: 'Data providers' },
+    { href: '/cache', label: 'Cache' },
     { href: '/account', label: 'Account' },
 ];
 

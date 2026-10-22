@@ -14,12 +14,17 @@ import { YahooBridge } from './market/bridges/yahoo';
 import { EnergyChartsBridge } from './market/bridges/energycharts';
 import { CoinbaseBridge } from './market/bridges/coinbase';
 import { RelatedMap } from './analytics/related';
+import { CacheStore } from './market/cache-store';
+import { CachedMarket } from './market/cached-market';
+import { CacheWarmer } from './market/warmer';
 
 export interface Services {
     db: Db;
     auth: AuthService;
     market: MarketService;
     hub: LiveHub;
+    cached: CachedMarket;
+    warmer: CacheWarmer;
     related: RelatedMap;
     close(): void;
 }
@@ -74,6 +79,10 @@ export function createServices(config: AppConfig, log: Log): Services {
         setInterval(loadAssets, 24 * 3_600_000).unref();
     }
 
+    const cached = new CachedMarket(market, new CacheStore(path.join(config.dataDir, 'cache', 'cache.sqlite')));
+    const warmer = new CacheWarmer(cached, db, hub);
+    warmer.start();
+
     const related = RelatedMap.load(config.configDir);
     log.info(`related-symbol map: ${related.symbols.size} symbols`);
 
@@ -82,9 +91,13 @@ export function createServices(config: AppConfig, log: Log): Services {
         auth,
         market,
         hub,
+        cached,
+        warmer,
         related,
         close() {
+            warmer.stop();
             finnhub?.close();
+            cached.store.close();
             db.close();
         },
     };

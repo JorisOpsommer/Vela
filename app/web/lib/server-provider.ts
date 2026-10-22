@@ -1,10 +1,16 @@
 // The browser's only data provider: every request goes to this app's own server, which
 // holds the API keys and picks the upstream source per symbol. One websocket carries
 // every live subscription.
-import type { DataProvider, ProviderInfo, SymbolDescriptor, SymbolInfo, BarRange, OHLCV } from '../../../src';
+import type { DataProvider, PeekedBars, ProviderInfo, SymbolDescriptor, SymbolInfo, BarRange, OHLCV } from '../../../src';
 import { ApiError, api } from './api';
+import { reportTiming } from './timing';
 
 type Unsubscribe = () => void;
+
+/** A tab hidden this long drops its live stream until it is shown again. */
+const HIDDEN_PARK_MS = 5 * 60_000;
+/** Loads at least this deep are chart opens (smaller ones are tail refreshes). */
+const OPEN_MIN_BARS = 50;
 
 const TIMEFRAMES = ['1', '2', '3', '5', '10', '15', '30', '45', '60', '120', '180', '240', '360', '480', '720', 'D', '2D', '3D', 'W', '2W', 'M'];
 
@@ -14,6 +20,32 @@ class StreamClient {
     private readonly subs = new Map<number, { symbol: string; tf: string; session?: string; onBar: (b: OHLCV) => void }>();
     private retryMs = 1_000;
     private closedByUs = false;
+    /** Dropped while the tab sat hidden: the server's providers go quiet, the cache can warm. */
+    private parked = false;
+    private parkTimer: ReturnType<typeof setTimeout> | null = null;
+
+    constructor() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                this.parkTimer ??= setTimeout(() => this.park(), HIDDEN_PARK_MS);
+                return;
+            }
+            if (this.parkTimer) clearTimeout(this.parkTimer);
+            this.parkTimer = null;
+            if (this.parked) {
+                // The chart heals the gap itself when the tab returns; resubscribing is all it takes.
+                this.parked = false;
+                this.ensure();
+            }
+        });
+    }
+
+    private park(): void {
+        this.parkTimer = null;
+        if (document.visibilityState !== 'hidden' || !this.ws) return;
+        this.parked = true;
+        this.ws.close();
+    }
 
     subscribe(symbol: string, tf: string, session: string | undefined, onBar: (b: OHLCV) => void): Unsubscribe {
         const id = this.nextId++;
@@ -31,7 +63,7 @@ class StreamClient {
     }
 
     private ensure(): void {
-        if (this.ws || this.closedByUs) return;
+        if (this.ws || this.closedByUs || this.parked) return;
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/stream`);
         this.ws = ws;
         ws.onopen = () => {
@@ -49,7 +81,7 @@ class StreamClient {
         };
         ws.onclose = () => {
             this.ws = null;
-            if (this.subs.size === 0 || this.closedByUs) return;
+            if (this.subs.size === 0 || this.closedByUs || this.parked) return;
             setTimeout(() => this.ensure(), this.retryMs);
             this.retryMs = Math.min(this.retryMs * 2, 30_000);
         };
@@ -80,6 +112,38 @@ export class ServerProvider implements DataProvider {
     private symbolsPromise: Promise<SymbolDescriptor[]> | null = null;
     private readonly infoCache = new Map<string, Promise<SymbolInfo | undefined>>();
     private readonly calendarCache = new Map<string, { at: number; value: Promise<ReadonlyArray<readonly [number, number]>> }>();
+    /** Chart opens in flight, for the first-paint timings: when each began, whether held bars painted. */
+    private readonly opening = new Map<string, { t0: number; painted: boolean }>();
+
+    private openKey(ticker: string, timeframe: string, range: BarRange): string | null {
+        if (range.from != null || range.to != null || (range.limit ?? 0) < OPEN_MIN_BARS) return null;
+        return `${ticker.toUpperCase()}|${timeframe}|${range.session ?? ''}`;
+    }
+
+    private beginOpen(key: string): { t0: number; painted: boolean } {
+        let o = this.opening.get(key);
+        if (!o || performance.now() - o.t0 > 60_000) {
+            o = { t0: performance.now(), painted: false };
+            this.opening.set(key, o);
+        }
+        return o;
+    }
+
+    /** The bars the server already holds — an instant paint while {@link getBars} runs. */
+    async peekBars(ticker: string, timeframe: string, range: BarRange): Promise<PeekedBars | null> {
+        const key = this.openKey(ticker, timeframe, range);
+        const open = key ? this.beginOpen(key) : null;
+        const q = new URLSearchParams({ symbol: ticker, tf: timeframe, cache: 'only' });
+        if (range.limit != null) q.set('limit', String(range.limit));
+        if (range.session) q.set('session', range.session);
+        const r = await api<{ bars: OHLCV[]; asOf: number | null; complete: boolean }>(`/api/bars?${q}`).catch(() => null);
+        if (!r || r.bars.length === 0 || r.asOf == null) return null;
+        if (open && !open.painted) {
+            open.painted = true;
+            reportTiming(r.complete ? 'complete' : 'cached', performance.now() - open.t0);
+        }
+        return { bars: r.bars, asOf: r.asOf, complete: r.complete };
+    }
 
     info(): ProviderInfo {
         return {
@@ -96,8 +160,14 @@ export class ServerProvider implements DataProvider {
         if (range.to != null) q.set('to', String(Math.floor(range.to)));
         if (range.limit != null) q.set('limit', String(range.limit));
         if (range.session) q.set('session', range.session);
+        const key = this.openKey(ticker, timeframe, range);
+        const open = key ? this.beginOpen(key) : null;
         try {
             const r = await api<{ bars: OHLCV[] }>(`/api/bars?${q}`);
+            if (open && key) {
+                if (!open.painted && r.bars.length > 0) reportTiming('cold', performance.now() - open.t0);
+                this.opening.delete(key);
+            }
             return r.bars;
         } catch (err) {
             if (err instanceof ApiError && err.status === 429 && err.body.code === 'provider_limit') {

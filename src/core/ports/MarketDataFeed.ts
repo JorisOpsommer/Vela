@@ -1,6 +1,7 @@
 import type { OHLCV } from '../model/ohlcv';
 import type { MarketConfig } from '../options';
 import type { Unsubscribe } from '../util/types';
+import type { PeekedBars } from './DataProvider';
 
 /**
  * Symbol metadata an engine may need (e.g. Pine `syminfo.*`). Free-form beyond
@@ -48,6 +49,12 @@ export interface MarketDataFeed {
      * runs its non-progressive paths (single load, deep head + backfill) untouched.
      */
     loadProgressive?(cfg: MarketConfig, onBatch: (bars: OHLCV[]) => void, opts?: { signal?: AbortSignal }): Promise<OHLCV[] | null>;
+    /**
+     * The source's instant, possibly stale answer for {@link load} — `DataProvider.peekBars`
+     * semantics. Null when nothing is held, the source cannot peek, or the market is
+     * offline `data`. Absent ≡ no early paint.
+     */
+    peek?(cfg: MarketConfig): Promise<PeekedBars | null>;
     /** Subscribe to live forming-candle ticks. Returns an unsubscribe fn. */
     subscribe(cfg: MarketConfig, onBar: (bar: OHLCV) => void): Unsubscribe;
     /** Optional symbol metadata for engines that need it; absent/undefined ≡ engine synthesizes. */

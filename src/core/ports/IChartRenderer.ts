@@ -295,6 +295,16 @@ export interface IChartRenderer {
      */
     setLoading?(loading: boolean): void;
 
+    /**
+     * The series on screen is PROVISIONAL from `from` (the open-time of its newest held
+     * bar) to the present: bars a source already held, painted while the real load is in
+     * flight. Renderers may mark that stretch as still loading — `syncing` while it is on
+     * its way, `stale` when the load came back without it (the held bars stand, as of
+     * `asOf`). Null ends it; `reveal` = the real bars just replaced the held ones, so a
+     * renderer may uncover them with a short transition. Optional.
+     */
+    setProvisional?(state: { from: number; asOf: number; status: 'syncing' | 'stale' } | null, opts?: { reveal?: boolean }): void;
+
     ensurePane(pane: Pane): void;
     removePane(id: string): void;
 

@@ -6,6 +6,22 @@ All notable changes to Vela, newest first.
 
 ### Added
 
+- **Charts open from bars the server already has.** A data provider can now hand the chart the
+  bars it already holds with `peekBars`, and the chart paints them at once while the full load
+  runs. The stretch still on its way carries a soft shimmering band with faint ghost candles,
+  and the status line shows a **Syncing** chip; when the fresh bars land the band withdraws
+  left to right to uncover them, with the view staying on the latest bar. If the fresh load
+  fails, the held bars stay up and the chip says how old they are.
+- **The self-hosted app keeps a market-data cache.** Every chart and watchlist price the server
+  fetches is saved, so opening a chart or the watchlist shows bars and prices immediately and
+  only the newest stretch is fetched from the providers. Outside market hours a chart that is
+  already up to date loads its history without any provider call. While nobody is using the providers, the
+  server prefetches every account's layout charts and watchlist at the timeframes it uses:
+  after the close, before the open, a few times during the day, and every few hours for crypto.
+  It steps aside the moment someone starts charting. Unused data is dropped after five days.
+  The new **Cache** page shows what is cached, how fresh it is, how much time it saves, and what
+  the prefetcher is doing; admins can trigger a prefetch, purge unused data or clear it all.
+
 - **Indicator settings stick to your account.** When you change an indicator's settings, such as
   its colors, length or thresholds, the next indicator of that type you add starts with those
   values, and they are saved with your workspace. Setting a value back to its default forgets the

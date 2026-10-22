@@ -1,6 +1,7 @@
 // Operational metrics for the provider-stats page: every upstream call (latency,
 // outcome, rate-limit headers), cache effectiveness, and request-budget pressure.
 // In memory, since process start — a restart begins a fresh window.
+import { activity, isBackground } from './background';
 
 export type MetricBridge = 'alpaca' | 'finnhub' | 'yahoo' | 'energycharts' | 'coinbase';
 
@@ -47,6 +48,7 @@ interface CacheCounters {
 
 interface BudgetProbe {
     perMinute: number;
+    readonly capacity: number;
     available(): number;
     waiting(): number;
     waits: number;
@@ -82,6 +84,7 @@ export class Metrics {
     }
 
     record(r: CallRecord): void {
+        activity.record(isBackground());
         const t = this.now();
         const s = this.state(r.bridge);
         const ok = r.status >= 200 && r.status < 400;
@@ -133,6 +136,12 @@ export class Metrics {
 
     registerBudget(label: string, probe: BudgetProbe): void {
         this.budgets.set(label, probe);
+    }
+
+    /** Share of a bridge's request bucket that is free right now (1 when it has none). */
+    headroom(label: string): number {
+        const b = this.budgets.get(label);
+        return b ? b.available() / Math.max(1, b.capacity) : 1;
     }
 
     /** Wraps a logical upstream call that does not go through `fetchJson`. */

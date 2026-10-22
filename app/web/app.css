@@ -239,6 +239,15 @@ body {
 .wl-row.down .wl-chg {
     color: var(--vela-down, #f23645);
 }
+/* A price from the server's cache, shown while the live one loads: muted until it lands. */
+.wl-last,
+.wl-chg {
+    transition: opacity 0.3s ease;
+}
+.wl-row.cached .wl-last,
+.wl-row.cached .wl-chg {
+    opacity: 0.5;
+}
 /* Pre/post-market line: under the price and change, the row grows a second line. */
 .wl-row.has-ext .wl-ico,
 .wl-row.has-ext .wl-label,

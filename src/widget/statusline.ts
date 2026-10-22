@@ -162,6 +162,24 @@ const CSS = `
     line-height: 16px;
 }
 .vela-statusline .vela-sl-delay svg { display: block; }
+/* Catch-up tag — the chart shows bars its source already held while the newest stretch
+ * loads ("Syncing", a pulsing dot), or since that load failed ("Cached 14:30"). */
+.vela-statusline .vela-sl-sync {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px 1px 5px;
+    border-radius: 999px;
+    font-size: var(--vela-font-size-sm);
+    font-weight: 600;
+    line-height: 16px;
+    color: var(--vela-fg-muted);
+    background: color-mix(in srgb, var(--vela-fg-muted) 14%, transparent);
+}
+.vela-statusline .vela-sl-sync[hidden] { display: none !important; }
+.vela-statusline .vela-sl-sync-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.vela-statusline .vela-sl-sync svg { display: block; }
 /* Tabular figures: every digit has one advance, so a readout whose text changes only in
  * its digits keeps its width — render() skips the ladder for those (see widthKey). */
 .vela-statusline .vela-sl-values { font-variant-numeric: tabular-nums; }
@@ -371,6 +389,10 @@ export class Statusline {
     private delayTip!: Tooltip;
     /** Minutes the symbol's data runs behind the market; null = real time. */
     private delayMinutes: number | null = null;
+    /** The catch-up tag — shown while held bars stand in for the newest stretch (see {@link setSync}). */
+    private readonly syncEl: HTMLElement;
+    private syncTip!: Tooltip;
+    private syncPulse: Animation | null = null;
     /** The show-chart eye — visible only while the chart is hidden. */
     private readonly eyeEl: HTMLButtonElement;
     private eyeTip!: Tooltip;
@@ -469,6 +491,9 @@ export class Statusline {
         this.delayEl.style.color = SESSION_PRE;
         this.delayEl.style.background = `color-mix(in srgb, ${SESSION_PRE} 15%, transparent)`;
         this.delayEl.style.display = 'none'; // real time until setDelay says otherwise
+        this.syncEl = doc.createElement('span');
+        this.syncEl.className = 'vela-sl-sync';
+        this.syncEl.hidden = true;
         this.ohlcEl = doc.createElement('span');
         this.ohlcEl.className = 'vela-sl-ohlc';
         this.changeEl = doc.createElement('span');
@@ -488,7 +513,7 @@ export class Statusline {
         });
         this.identityRow = doc.createElement('span');
         this.identityRow.className = 'vela-sl-row vela-sl-identity';
-        this.identityRow.append(this.avatarEl, this.symbolEl, this.metaEl, this.marketEl, this.delayEl);
+        this.identityRow.append(this.avatarEl, this.symbolEl, this.metaEl, this.marketEl, this.delayEl, this.syncEl);
         this.valuesRow = doc.createElement('span');
         this.valuesRow.className = 'vela-sl-row vela-sl-values';
         this.valuesRow.append(this.ohlcEl, this.changeEl, this.eyeEl);
@@ -505,6 +530,7 @@ export class Statusline {
         this.syncMarketTip();
         this.eyeTip = new Tooltip(this.eyeEl, { content: 'Show chart', placement: 'bottom' });
         this.delayTip = new Tooltip(this.delayEl, { content: '', placement: 'bottom' });
+        this.syncTip = new Tooltip(this.syncEl, { content: '', placement: 'bottom' });
         this.setMarketStatus('open'); // crypto trades continuously (no session model yet)
         this.render();
     }
@@ -836,6 +862,42 @@ export class Statusline {
         this.fit();
     }
 
+    /**
+     * Mark the chart as showing bars its source already held: `syncing` while the newest
+     * stretch loads, `stale` when that load came back without it (the held bars date from
+     * `asOf`). Null when the chart is current.
+     */
+    setSync(state: { state: 'syncing' | 'stale'; asOf: number } | null): void {
+        this.syncPulse?.cancel();
+        this.syncPulse = null;
+        if (!state) {
+            this.syncEl.hidden = true;
+            this.syncEl.replaceChildren();
+            this.fit();
+            return;
+        }
+        const doc = this.el.ownerDocument;
+        const at = new Date(state.asOf);
+        const sameDay = new Date().toDateString() === at.toDateString();
+        const when = at.toLocaleString(undefined, sameDay ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        if (state.state === 'syncing') {
+            const dot = doc.createElement('span');
+            dot.className = 'vela-sl-sync-dot';
+            this.syncEl.replaceChildren(dot, doc.createTextNode('Syncing'));
+            const still = doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+            if (!still && typeof dot.animate === 'function') {
+                this.syncPulse = dot.animate([{ opacity: 1 }, { opacity: 0.25 }], { duration: 700, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' });
+            }
+            this.syncTip.setContent(`Showing saved bars from ${when} while the latest load`);
+        } else {
+            this.syncEl.innerHTML = iconAt('clock', 12);
+            this.syncEl.append(doc.createTextNode(`Cached ${when}`));
+            this.syncTip.setContent(`The latest bars could not load — showing bars saved at ${when}`);
+        }
+        this.syncEl.hidden = this.replaying;
+        this.fit();
+    }
+
     private delayShown(marketPart: boolean): boolean {
         return this.delayMinutes != null && marketPart && !this.replaying;
     }
@@ -979,6 +1041,8 @@ export class Statusline {
         this.sheet?.destroy();
         this.eyeTip.destroy();
         this.delayTip.destroy();
+        this.syncTip.destroy();
+        this.syncPulse?.cancel();
         this.marketBubble.destroy();
         this.host.classList.remove('vela-has-statusline', 'vela-sl-stacked-host'); // the legend shift leaves with the line
         this.el.remove();

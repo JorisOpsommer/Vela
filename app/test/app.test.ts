@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../server/app';
+import { CachedMarket } from '../server/market/cached-market';
+import { CacheStore } from '../server/market/cache-store';
 import { openDbAt } from '../server/db';
 import { AuthService } from '../server/auth/service';
 import { SecretBox } from '../server/auth/secret-box';
@@ -73,7 +75,7 @@ beforeAll(async () => {
         { alpaca: false, finnhub: false },
     );
     const market = new MarketService(catalog, { yahoo: fakeBridge('yahoo', calls), energycharts: fakeBridge('energycharts', calls) });
-    app = await buildApp({ config, db, auth, market, hub: new LiveHub(market), related: new RelatedMap({ symbols: {} }), logger: false });
+    app = await buildApp({ config, db, auth, market, hub: new LiveHub(market), cached: new CachedMarket(market, new CacheStore(':memory:')), related: new RelatedMap({ symbols: {} }), logger: false });
 });
 
 afterAll(async () => {

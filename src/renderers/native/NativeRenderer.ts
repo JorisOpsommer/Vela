@@ -59,6 +59,7 @@ import { PriceAxisTickSource } from './chrome/priceAxisTicks';
 import { LabelTooltip } from './chrome/LabelTooltip';
 import { AXIS_MASTER_W, AXIS_MERGED_W } from './chrome/axisLayout';
 import { CrosshairRenderer } from './chrome/CrosshairRenderer';
+import { ProvisionalBand } from './chrome/ProvisionalBand';
 import { SettingsDialog } from './chrome/SettingsDialog';
 import { UserDrawingController } from './drawings/UserDrawingController';
 import { IndicatorDrawingSlices, mergeSlices } from './drawings/IndicatorDrawingSlices';
@@ -283,6 +284,10 @@ export class NativeRenderer implements IChartRenderer {
      *  flight with nothing painted (first load, market switch). Rebuilt per show, so it
      *  picks up the current theme without a setTheme hook. */
     private loadingEl: HTMLElement | null = null;
+    /** The catch-up band over the stretch a held (peeked) series has not reached yet. */
+    private provisionalBand: ProvisionalBand | null = null;
+    /** Open-time of the newest held bar while the band shows (or withdraws). */
+    private provisionalFrom: number | null = null;
     private modelAlpha = 1; // indicator-model opacity: 0 during the candle reveal, fades to 1 after
     private targetBarSpacing = 0; // eased zoom target
     private zoomAnchorLogical = 0; // logical kept pinned under the cursor while zooming
@@ -742,6 +747,32 @@ export class NativeRenderer implements IChartRenderer {
         }
         this.wrapper.appendChild(el); // appended last ⇒ above the canvases, still under dialogs
         this.loadingEl = el;
+    }
+
+    /** Mark the stretch after the newest held bar as still loading (see the port). */
+    setProvisional(state: { from: number; asOf: number; status: 'syncing' | 'stale' } | null, opts?: { reveal?: boolean }): void {
+        const band = this.provisionalBand;
+        if (!band) return;
+        const theme = this.chromeTheme();
+        if (state) this.provisionalFrom = state.from;
+        band.set(state?.status ?? null, { text: theme.textColor, background: this.theme.background }, opts);
+        this.syncProvisional();
+        this.scheduler?.invalidate(InvalidateLevel.Light);
+    }
+
+    /** Lay the band from the newest held bar's slot to the price scale, over every pane. */
+    private syncProvisional(): void {
+        const band = this.provisionalBand;
+        if (!band?.visible || this.provisionalFrom == null) return;
+        const bars = this.bars;
+        let idx = bars.length - 1;
+        while (idx >= 0 && bars[idx]!.time > this.provisionalFrom) idx -= 1;
+        if (idx < 0 || this.coords.width <= 0) return band.sync(null);
+        const pitch = this.coords.pxPerBar();
+        const pane = this.scene.panes.get(PRICE_PANE_ID);
+        const y = pane ? this.coords.priceToY(bars[idx]!.close, pane.scale, pane.bounds) : null;
+        const onPane = pane != null && y != null && Number.isFinite(y) && y >= pane.bounds.top && y <= pane.bounds.top + pane.bounds.height;
+        band.sync({ left: this.coords.logicalToX(idx) + pitch / 2, right: this.coords.width, height: this.coords.height, pitch, body: this.coords.bodySpacing(), closeY: onPane ? y : null, dpr: this.coords.dpr });
     }
 
     /**
@@ -1482,6 +1513,7 @@ export class NativeRenderer implements IChartRenderer {
         this.shadeRightEl.hidden = true;
         Object.assign(this.shadeRightEl.style, { position: 'absolute', top: '0', left: '0', width: '0', height: '0', pointerEvents: 'none', display: 'none' });
         this.shadeRightSig = '';
+        this.provisionalBand = new ProvisionalBand(document);
 
         this.overlayRoot = document.createElement('div');
         Object.assign(this.overlayRoot.style, { position: 'absolute', inset: '0', pointerEvents: 'none' });
@@ -1497,7 +1529,7 @@ export class NativeRenderer implements IChartRenderer {
         this.extLayers = rendererLayers().map((def) => ({ def, instance: def.create(), canvas: this.createLayerCanvas(), channel: def.id, owner: null }));
         const below = this.extLayers.filter((l) => l.def.placement === 'below-data').map((l) => l.canvas);
         const above = this.extLayers.filter((l) => l.def.placement !== 'below-data').map((l) => l.canvas);
-        this.plot.append(this.backdropCanvas, ...below, this.dataCanvas, this.volumeCanvas, this.vpvrCanvas, ...above, this.chromeCanvas, this.drawingsCanvas, this.shadeRightEl, this.cursorCanvas, this.overlayRoot);
+        this.plot.append(this.backdropCanvas, ...below, this.dataCanvas, this.volumeCanvas, this.vpvrCanvas, ...above, this.chromeCanvas, this.drawingsCanvas, this.provisionalBand.el, this.shadeRightEl, this.cursorCanvas, this.overlayRoot);
         this.layerOrderSig = ''; // recomputed on the first data frame (owned layers follow their indicator's z)
         this.wrapper.appendChild(this.plot);
         this.factoryConfig = this.getConfig();
@@ -1923,6 +1955,8 @@ export class NativeRenderer implements IChartRenderer {
         this.crosshairLayer.destroy();
         this.shadeRightEl?.remove();
         this.shadeRightEl = null;
+        this.provisionalBand?.destroy();
+        this.provisionalBand = null;
         this.attributionEl?.remove();
         this.attributionEl = null;
         this.mountContainer?.style.removeProperty('--vela-toolbar-gutter');
@@ -2652,6 +2686,7 @@ export class NativeRenderer implements IChartRenderer {
         if (this.easeLiveBar(dtMs)) active = true; // glide the forming bar toward the latest tick
         this.skeletonClockMs += dtMs; // drives the loading-skeleton pulse (harmless when none show)
         this.paintData();
+        this.syncProvisional();
         this.renderCrosshairLayer();
         this.updateLegendValues(); // the animator owns the frame — renderFrame won't run
         this.emitViewportChange();
@@ -3321,6 +3356,7 @@ export class NativeRenderer implements IChartRenderer {
         if (repaintsData(level)) {
             this.computeScales();
             this.paintData();
+            this.syncProvisional();
         } else if (repaintsChrome(level) && this.paintedData) {
             // Chrome-only tier (the countdown's wall-clock tick): neither data nor viewport
             // changed, so repaint just the chrome canvas over the frame's existing scales —

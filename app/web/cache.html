@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>Cache · Charts</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    </head>
+    <body class="gradient-page">
+        <main class="page">
+            <section class="hero">
+                <h1>Cache</h1>
+                <p id="subtitle">What the server keeps so charts and prices show at once, and how it stays fresh.</p>
+            </section>
+            <div class="grid kpis" id="kpis"></div>
+
+            <div class="section-title">Warmer <small>prefetches every account's charts and watchlist while the providers are quiet</small></div>
+            <div class="grid two">
+                <div class="card" id="warmer"></div>
+                <div class="card"><h3>Upcoming passes<span class="sub">US session times, shown in your time zone</span></h3><div id="upcoming"></div></div>
+            </div>
+            <div class="card cache-gap">
+                <h3>Provider calls, last 24 hours<span class="sub">users and warmer per 10 minutes · bands mark US pre/post-market and regular hours</span></h3>
+                <div id="chart-activity"></div>
+            </div>
+
+            <div class="section-title">Freshness <small>every watched chart, per timeframe</small></div>
+            <div class="card"><div id="freshness"></div></div>
+
+            <div class="section-title">Speed <small>last 24 hours, measured in the browser</small></div>
+            <div class="grid three">
+                <div class="card"><h3>Chart opens<span class="sub">what painted first</span></h3><div id="donut-opens"></div></div>
+                <div class="card"><h3>Watchlist first paint</h3><div id="donut-quotes"></div></div>
+                <div class="card"><h3>Time to first bar<span class="sub">median per kind</span></h3><div id="timing-table"></div></div>
+            </div>
+            <div class="card cache-gap"><h3>Time to first bar, per hour<span class="sub">median, ms</span></h3><div id="chart-timing"></div></div>
+
+            <div class="section-title">Savings <small>since the server started</small></div>
+            <div class="grid two">
+                <div class="card"><h3>Chart loads by answer<span class="sub">how each load was served</span></h3><div id="outcomes"></div></div>
+                <div class="card"><h3>Bars served from the cache<span class="sub">by provider</span></h3><div id="by-source"></div></div>
+            </div>
+
+            <div class="section-title">Storage</div>
+            <div class="grid two">
+                <div class="card"><h3>Bars by timeframe</h3><div id="by-tf"></div></div>
+                <div class="card" id="storage"></div>
+            </div>
+
+            <div class="section-title">Log <small>purges, refetched histories and errors</small></div>
+            <div class="card"><div id="events"></div></div>
+
+            <div id="admin" hidden>
+                <div class="section-title">Housekeeping <small>admins only</small></div>
+                <div class="card cache-actions" id="actions"></div>
+            </div>
+        </main>
+        <script type="module" src="./cache.ts"></script>
+    </body>
+</html>

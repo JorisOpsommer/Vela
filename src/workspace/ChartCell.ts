@@ -457,6 +457,7 @@ export class ChartCell {
         // The loading affordance and the watermark never share the canvas.
         this.inner.on('load:start', ({ symbol }) => {
             this.watermark?.setLoading(true);
+            this.statusline?.setSync(null);
             // The previous symbol's extended price must not sit on the new one's bars.
             if (symbol !== this.extendedPrice.symbol) this.extendedPrice.stop();
             // Probe the new symbol's metadata HERE rather than waiting for `market:changed`
@@ -464,6 +465,10 @@ export class ChartCell {
             // exchange zone then settle while the bars load instead of a beat after them.
             // The committed pass below re-runs idempotently and remains the backstop.
             this.refreshSymbolMetadata(symbol);
+        });
+        // Held bars standing in for the newest stretch: the status line says so until it lands.
+        this.inner.on('data:provisional', ({ state, asOf }) => {
+            this.statusline?.setSync(state === 'live' ? null : { state, asOf });
         });
         this.inner.on('load:end', () => {
             this.watermark?.setLoading(false);

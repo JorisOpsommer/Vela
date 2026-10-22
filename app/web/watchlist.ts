@@ -3,6 +3,7 @@
 import type { SidePanelDescriptor, WidgetContext } from '../../src/plugin';
 import type { SymbolDescriptor } from '../../src';
 import { api } from './lib/api';
+import { reportTiming } from './lib/timing';
 import type { ServerStorage } from './lib/storage';
 import type { ServerProvider } from './lib/server-provider';
 import { track } from './lib/tracker';
@@ -27,6 +28,8 @@ interface QuoteRow {
     time: number;
     /** The latest pre/post-market trade, while the regular session is closed. */
     extended?: { session: 'pre' | 'post'; price: number; changePct: number | null };
+    /** Set on a price from the server's cache: when it was fetched. Live prices carry none. */
+    asOf?: number;
 }
 
 const STORAGE_KEY = 'watchlist';
@@ -93,6 +96,10 @@ class WatchlistView {
     private readonly suggest = el('div', 'wl-suggest');
     private readonly groupSelect = el('select', 'wl-group-select');
     private lastActive = '';
+    /** First paint: the cached prices go up at once, the live ones replace them. */
+    private primed = false;
+    private liveSeen = false;
+    private readonly bornAt = performance.now();
 
     constructor(
         private readonly ctx: WidgetContext,
@@ -175,11 +182,33 @@ class WatchlistView {
         return [...new Set(this.doc.groups.flatMap((g) => g.symbols))];
     }
 
+    /** Paint the server's last known prices while the live ones load. */
+    private async prime(syms: string[]): Promise<void> {
+        const t0 = performance.now();
+        const r = await api<{ quotes: QuoteRow[] }>(`/api/quotes?cache=only&symbols=${encodeURIComponent(syms.join(','))}`).catch(() => null);
+        if (!r || this.liveSeen || r.quotes.length === 0) return;
+        for (const q of r.quotes) {
+            if (this.quotes.has(q.symbol)) continue;
+            this.quotes.set(q.symbol, q);
+            this.paintQuote(q);
+        }
+        reportTiming('quotes-cached', performance.now() - t0);
+    }
+
     private async refresh(): Promise<void> {
         const syms = this.allSymbols();
         if (syms.length === 0) return;
+        if (!this.primed) {
+            this.primed = true;
+            void this.prime(syms);
+        }
         try {
             const r = await api<{ quotes: QuoteRow[] }>(`/api/quotes?symbols=${encodeURIComponent(syms.join(','))}`);
+            if (!this.liveSeen) {
+                this.liveSeen = true;
+                const cachedFirst = [...this.quotes.values()].some((q) => q.asOf != null);
+                if (!cachedFirst && r.quotes.length > 0) reportTiming('quotes-cold', performance.now() - this.bornAt);
+            }
             for (const q of r.quotes) {
                 const prev = this.quotes.get(q.symbol);
                 this.quotes.set(q.symbol, q);
@@ -198,6 +227,9 @@ class WatchlistView {
             chg.textContent = q.changePct == null ? '—' : `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`;
             row.classList.toggle('up', (q.changePct ?? 0) > 0);
             row.classList.toggle('down', (q.changePct ?? 0) < 0);
+            row.classList.toggle('cached', q.asOf != null);
+            if (q.asOf != null) last.title = `Last known price, ${new Date(q.asOf).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} — updating`;
+            else last.removeAttribute('title');
             this.paintExtended(row, q);
             if (prev && prev.price !== q.price) {
                 last.classList.remove('flash-up', 'flash-down');

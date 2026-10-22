@@ -118,7 +118,7 @@ export type { DrawingTypeKey } from './core/drawings/Drawing';
 export { registerIcon, iconMarkup } from './ui/icons';
 export type { KeyBindingDescriptor, ResolvedBinding } from './ui/keymap';
 export type { PriceStyle } from './core/options';
-export type { DataProvider, ProviderInfo, ProviderCapabilities, SymbolDescriptor } from './core/ports/DataProvider';
+export type { DataProvider, PeekedBars, ProviderInfo, ProviderCapabilities, SymbolDescriptor } from './core/ports/DataProvider';
 
 // SCRIPTING ENGINES (`chart.registerEngine` / the widget's `engines` option): a language
 // runtime implementing the `ScriptingEngine` port — prepare/execute sessions over bars

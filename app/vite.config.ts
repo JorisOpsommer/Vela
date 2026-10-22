@@ -18,6 +18,7 @@ export default defineConfig({
                 account: resolve(__dirname, 'web/account.html'),
                 stats: resolve(__dirname, 'web/stats.html'),
                 insights: resolve(__dirname, 'web/insights.html'),
+                cache: resolve(__dirname, 'web/cache.html'),
             },
         },
     },

@@ -1,5 +1,5 @@
 import type { MarketDataFeed, BarRange, SymbolInfo } from '../core/ports/MarketDataFeed';
-import type { DataProvider, ProviderInfo, ProviderCapabilities, SymbolDescriptor } from '../core/ports/DataProvider';
+import type { DataProvider, PeekedBars, ProviderInfo, ProviderCapabilities, SymbolDescriptor } from '../core/ports/DataProvider';
 import type { MarketConfig } from '../core/options';
 import type { OHLCV } from '../core/model/ohlcv';
 
@@ -180,6 +180,20 @@ export class MultiProviderFeed implements MarketDataFeed {
         this.primaryProvider = resolved.provider;
         this.prefetchSymbolInfo(resolved);
         return this.cache.loadProgressive(canonical(cfg, resolved), onBatch, opts);
+    }
+
+    /** The resolved provider's instant answer (see `DataProvider.peekBars`); never throws. */
+    async peek(cfg: MarketConfig): Promise<PeekedBars | null> {
+        if (cfg.data && cfg.data.length > 0) return null;
+        const resolved = await this.registry.whenResolvable(rawSymbol(cfg), { default: this.primaryProvider });
+        const provider = this.registry.get(resolved.provider);
+        if (!provider?.peekBars) return null;
+        try {
+            const peeked = await provider.peekBars(resolved.ticker, cfg.timeframe ?? '60', { limit: cfg.bars ?? 500, session: cfg.session });
+            return peeked && peeked.bars.length > 0 ? peeked : null;
+        } catch {
+            return null;
+        }
     }
 
     /**

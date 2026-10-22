@@ -39,6 +39,14 @@ export interface VelaEventMap extends Record<string, unknown> {
    * `load:start`; plugins restore or rebuild their visuals here.
    */
   "load:end": { symbol: string; timeframe: string; bars: number };
+  /**
+   * The chart is showing bars its source already held (a provider's `peekBars`) while the
+   * real load is in flight. `state`: `syncing` — the newest stretch is still loading;
+   * `stale` — the real load came back empty-handed, so the held bars stay, as of `asOf`;
+   * `live` — the real answer replaced them (or a live bar caught up). Never fires for a
+   * load that painted no peek, nor for a peek the source marked complete.
+   */
+  "data:provisional": { symbol: string; timeframe: string; state: "syncing" | "stale" | "live"; asOf: number };
   "indicator:added": { id: string };
   "indicator:removed": { id: string };
   /** An indicator's stored input/prop VALUES changed (settings dialog, `setInputs`) — what state persistence listens to. */

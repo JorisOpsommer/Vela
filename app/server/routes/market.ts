@@ -46,7 +46,7 @@ export function symbolInfo(e: CatalogEntry, extended: string | undefined) {
 }
 
 export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): void {
-    const { market, hub, db } = ctx;
+    const { market, hub, db, cached } = ctx;
 
     let symbolsJson: { body: string; etag: string; at: number } | null = null;
     app.get('/api/symbols', async (req, reply) => {
@@ -78,9 +78,15 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
             limit: limit != null ? Math.min(Math.max(1, Math.floor(limit)), 5000) : undefined,
             session: q.session === 'extended' ? 'extended' : 'regular',
         };
+        // `cache=only`: what the server already holds, at once and without a provider call —
+        // the chart paints it while the full answer is on its way.
+        if (q.cache === 'only') {
+            const peek = await cached.peek(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
+            return peek ?? { bars: [], asOf: null, complete: false };
+        }
         try {
-            const { bars, source } = await market.getBars(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
-            return { bars, source };
+            const { bars, source, cache } = await cached.bars(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
+            return { bars, source, cache };
         } catch (err) {
             req.log.warn({ symbol: q.symbol, tf: q.tf, err: (err as Error).message }, 'bars failed');
             if (err instanceof ProviderLimitError) {
@@ -96,7 +102,8 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
         const raw = String((req.query as { symbols?: string }).symbols ?? '');
         const symbols = [...new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))].slice(0, 120);
         if (symbols.length === 0) return reply.code(400).send({ error: 'symbols required' });
-        return { quotes: await market.quotes(symbols) };
+        if ((req.query as { cache?: string }).cache === 'only') return { quotes: cached.peekQuotes(symbols) };
+        return { quotes: await cached.quotes(symbols) };
     });
 
     app.get('/api/calendar', async (req, reply) => {

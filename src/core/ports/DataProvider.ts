@@ -46,6 +46,22 @@ export interface SymbolDescriptor {
     provider?: string;
 }
 
+/**
+ * A provider's instant, possibly STALE answer for a chart load — see
+ * {@link DataProvider.peekBars}.
+ */
+export interface PeekedBars {
+    /** Ascending, de-duplicated, at most the requested count. May end well before now. */
+    bars: OHLCV[];
+    /** When the source last refreshed these bars (epoch ms) — shown as "as of" while stale. */
+    asOf: number;
+    /**
+     * Nothing newer can exist yet (the market has not traded since `asOf`): the chart
+     * paints these bars as they are, with no catch-up cue. The full load still runs.
+     */
+    complete?: boolean;
+}
+
 /** What a provider can do — lets the registry/UI reason without provider-specific checks. */
 export interface ProviderCapabilities {
     /** Implements `listSymbols()` (enumeration → eager index + autocomplete). */
@@ -104,6 +120,18 @@ export interface DataProvider {
      * and the next symbol with it). Absent ≡ single-answer `getBars` semantics.
      */
     getBarsProgressive?(ticker: string, timeframe: string, range: BarRange, onBatch: (bars: OHLCV[]) => void, opts?: { signal?: AbortSignal }): Promise<OHLCV[]>;
+
+    /**
+     * The bars the provider ALREADY HOLDS for this request — a local or near cache,
+     * answered at once and never by a round trip to the slow upstream. The chart paints
+     * them while the real {@link getBars} load is in flight, marks the stretch from their
+     * newest bar to the present as still loading, and replaces them with the real answer
+     * when it lands (keeping the view on the live edge). Unlike progressive snapshots these
+     * bars may be stale at the NEW end: the newest one is not treated as forming, and live
+     * ticks start only after the real answer. Resolve null (or reject) when nothing is
+     * held — the chart then simply waits for `getBars`. Absent ⇒ no early paint.
+     */
+    peekBars?(ticker: string, timeframe: string, range: BarRange): Promise<PeekedBars | null>;
 
     /** Provider metadata. Absent ⇒ the registry synthesizes a record from the methods present. */
     info?(): ProviderInfo;

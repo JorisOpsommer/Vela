@@ -24,6 +24,11 @@ export class TokenBucket {
         return this.queue.length;
     }
 
+    /** The bucket size: what a quiet minute refills to. */
+    get capacity(): number {
+        return this.burst;
+    }
+
     private refill(): void {
         const t = Date.now();
         this.tokens = Math.min(this.burst, this.tokens + ((t - this.last) / 60_000) * this.perMinute);

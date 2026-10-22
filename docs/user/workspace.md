@@ -511,7 +511,9 @@ they work from the very first keystroke, before any click.
   gives way to a replay badge (the replay icon on the inverse chip), and the market status
   returns when the replay ends. When the symbol's metadata carries `delay_minutes` (its
   source publishes late), an amber **Delayed Nm** tag sits after the market badge; it hides
-  with the badge and during a replay.
+  with the badge and during a replay. While the chart shows bars its provider already held
+  and the newest ones are still loading, a muted **Syncing** chip with a pulsing dot follows
+  it; if that load fails, the chip reads **Cached** with the time the bars date from.
 - **Object tree** — a docked panel grouping every item under the pane it belongs to. Each pane is
   one column read top to bottom as front to back: its drawings, its indicators and, in the main
   pane, the price series, all in draw order — new indicators and new drawings both start under

@@ -213,6 +213,10 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
      *  abandoned stream left polling to its own budget starves the browser's per-host
      *  connection pool, and the NEXT symbol's very first fetch with it (measured). */
     private progressiveAbort: AbortController | null = null;
+    /** Held bars a peek painted while the real load is in flight (`DataProvider.peekBars`). */
+    private provisional: { gen: number; from: number; asOf: number; status: 'syncing' | 'stale' } | null = null;
+    /** The generation whose REAL load has painted bars — a peek landing later must not cover them. */
+    private paintedGen = -1;
     /** Awaiters racing a superseded load (setMarket callers) — released on every bump so they never hang. */
     private readonly supersedeWaiters: Array<() => void> = [];
     /** `history:complete` fired for the CURRENT load. Each market load re-arms the cycle
@@ -479,6 +483,10 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         // Only a DEEP request is worth splitting, and only when a requested initial window
         // does not pin the frame (a chunked load would paint the wrong range, then jump).
         const deep = !market.data?.length && initialRange == null && requested > SINGLE_LOAD_BARS;
+        // A source that already HOLDS bars paints them at once, while the real load below
+        // runs; the real answer then replaces them in place (see setBarSeries). Only for a
+        // load that frames its own view — a requested window would paint, then jump.
+        if (!market.data?.length && initialRange == null && this.feed.peek && !this.replayQueue) void this.paintPeek(gen);
         // PROGRESSIVE-CAPABLE source first: paint every snapshot it emits while it heals —
         // first candles in seconds on a cold symbol, depth growing behind them — and
         // complete when the final answer resolves. The pipeline returns at the FIRST paint
@@ -590,6 +598,36 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         // axis switches from the zoom formula to the symbol's true precision as soon as it lands.
         this.refreshPriceFormat();
         void this.ensurePriceFormat();
+    }
+
+    /**
+     * Paint the bars the source already holds, unless the real load got there first. The
+     * newest stretch is marked provisional until the real answer replaces it; a peek the
+     * source calls complete paints plainly. Bar-following layers wait for the real bars.
+     */
+    private async paintPeek(gen: number): Promise<void> {
+        const peeked = await this.feed.peek!(this.config.market).catch(() => null);
+        if (!peeked || peeked.bars.length === 0 || this.generation !== gen || this.paintedGen === gen || this.rawBars.length > 0) return;
+        this.setBarSeries(peeked.bars, { held: true });
+        if (peeked.complete) return;
+        const from = peeked.bars[peeked.bars.length - 1]!.time;
+        this.provisional = { gen, from, asOf: peeked.asOf, status: 'syncing' };
+        this.renderer.setProvisional?.({ from, asOf: peeked.asOf, status: 'syncing' });
+        this.emitProvisional('syncing', peeked.asOf);
+    }
+
+    private emitProvisional(state: 'syncing' | 'stale' | 'live', asOf: number): void {
+        const m = this.config.market;
+        this.events.emit('data:provisional', { symbol: m.symbol ?? 'TEST', timeframe: m.timeframe ?? '60', state, asOf });
+    }
+
+    /** Drop the provisional mark: `live` when real bars took over, silently when superseded. */
+    private endProvisional(live: boolean): void {
+        const p = this.provisional;
+        if (!p) return;
+        this.provisional = null;
+        this.renderer.setProvisional?.(null, { reveal: live });
+        if (live) this.emitProvisional('live', p.asOf);
     }
 
     /** Start the live tick subscription + the tab-restore catch-up listener. */
@@ -1659,10 +1697,30 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
      * (identity when no transform), and hand the view to the renderer. Everything downstream
      * (engines via `getBars`, natives, visible-range presets) reads `this.bars` — the view.
      */
-    private setBarSeries(raw: OHLCV[], opts?: { preserveView?: boolean; clearing?: boolean }): void {
+    private setBarSeries(raw: OHLCV[], opts?: { preserveView?: boolean; clearing?: boolean; held?: boolean }): void {
+        let preserveView = opts?.preserveView;
+        if (this.provisional && (opts?.clearing || this.provisional.gen !== this.generation)) this.endProvisional(false);
+        if (!opts?.clearing && !opts?.held) {
+            const p = this.provisional;
+            if (p && raw.length === 0) {
+                // The real load came back empty-handed: the held bars stand, honestly dated.
+                if (p.status !== 'stale') {
+                    p.status = 'stale';
+                    this.renderer.setProvisional?.({ from: p.from, asOf: p.asOf, status: 'stale' });
+                    this.emitProvisional('stale', p.asOf);
+                }
+                return;
+            }
+            if (p) {
+                // Same market, newer bars on the right: keep the frame on the live edge.
+                preserveView = true;
+                this.endProvisional(true);
+            }
+            if (raw.length > 0) this.paintedGen = this.generation;
+        }
         this.rawBars = raw;
         this.bars = this.barTransform ? this.barTransform.full(raw) : raw;
-        this.renderer.setBars(this.bars, { preserveView: opts?.preserveView });
+        this.renderer.setBars(this.bars, { preserveView });
         // The first PAINTED batch ends the loading state — on a deep history that is the quick
         // preview, well before the load pipeline completes. Only a non-empty series counts: the
         // switch-time CLEARING call says so explicitly, and an empty COMPLETED load is closed
@@ -1693,6 +1751,8 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 this.bars[this.bars.length - 1] = viewBar;
             }
         } else if (!last || bar.time > last.time) {
+            // A live bar past the held ones: the chart is current again.
+            if (this.provisional && bar.time > this.provisional.from) this.endProvisional(true);
             this.rawBars.push(bar);
             // A new bar opened, so the one before it is now FINAL — the distinction
             // `script:run` carries as `cause: 'bar'`.

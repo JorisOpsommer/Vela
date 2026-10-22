@@ -100,7 +100,12 @@ export interface Series {
  * Time-series chart, stacked areas or plain lines, with a shared crosshair tooltip.
  * `xs` are epoch ms; one axis only.
  */
-export function timeChart(host: HTMLElement, xs: number[], series: Series[], opts: { mode: 'stack' | 'bars' | 'line'; height?: number; unit?: string; digits?: number }): void {
+export function timeChart(
+    host: HTMLElement,
+    xs: number[],
+    series: Series[],
+    opts: { mode: 'stack' | 'bars' | 'line'; height?: number; unit?: string; digits?: number; bands?: Array<{ from: number; to: number; fill: string }> },
+): void {
     host.replaceChildren();
     host.classList.add('chart');
     if (series.length > 1) host.append(legend(series.map((s) => ({ label: s.label, color: s.color }))));
@@ -132,6 +137,18 @@ export function timeChart(host: HTMLElement, xs: number[], series: Series[], opt
     // Four equal steps, each a round number.
     const top = niceMax((max * 1.05) / 4) * 4;
     const y = (v: number) => m.t + ih - (v / top) * ih;
+
+    // Background bands (time windows such as trading sessions), behind everything.
+    if (opts.bands && n > 1) {
+        const step = (xs[n - 1]! - xs[0]!) / (n - 1);
+        const t0 = xs[0]! - (bars ? step / 2 : 0);
+        const t1 = xs[n - 1]! + (bars ? step / 2 : 0);
+        const px = (t: number) => m.l + ((Math.min(Math.max(t, t0), t1) - t0) / Math.max(1, t1 - t0)) * iw;
+        for (const b of opts.bands) {
+            if (b.to <= t0 || b.from >= t1) continue;
+            svg.append(svgEl('rect', { x: px(b.from), y: m.t, width: Math.max(0, px(b.to) - px(b.from)), height: ih, fill: b.fill }));
+        }
+    }
 
     for (let k = 0; k <= 4; k++) {
         const v = (top / 4) * k;

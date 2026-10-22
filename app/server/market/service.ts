@@ -8,6 +8,7 @@ import { bucketStart, clip, localDate, localTimeOfDay, parseTimeframe, zonedWall
 import type { AlpacaBridge } from './bridges/alpaca';
 import type { FinnhubBridge, Trade } from './bridges/finnhub';
 import type { CoinbaseBridge } from './bridges/coinbase';
+import { avoids } from './background';
 
 export interface QuoteRow {
     symbol: string;
@@ -87,7 +88,8 @@ export class MarketService {
         let failures = 0;
         let limitedFailures = 0;
         const limited = new Map<BridgeId, number>();
-        const candidates = entry.sources.filter((s) => this.bridge(s.bridge));
+        const candidates = entry.sources.filter((s) => this.bridge(s.bridge) && !avoids(s.bridge));
+        if (candidates.length === 0 && entry.sources.some((s) => this.bridge(s.bridge))) throw new UpstreamError(`${entry.symbol}: its sources are reserved for users right now`, 409);
         // Prefer healthy bridges, but never give up while an untried one remains.
         const ordered = [...candidates.filter((s) => this.healthy(s.bridge)), ...candidates.filter((s) => !this.healthy(s.bridge))].filter((s) => this.bridge(s.bridge)!.supports(tf, entry));
         if (ordered.length === 0) {
@@ -196,7 +198,7 @@ export class MarketService {
         if (req.to != null && req.to < now - tailMs) return bars;
         const yahoo = this.bridges.yahoo;
         const src = entry.sources.find((x) => x.bridge === 'yahoo');
-        if (!yahoo || !src || !this.healthy('yahoo')) return bars;
+        if (!yahoo || !src || !this.healthy('yahoo') || avoids('yahoo')) return bars;
         if (await this.regularSessionOpen(entry, now)) return bars;
         try {
             const tail = await yahoo.getBars(src.ticker, tf, { from: now - tailMs, session: 'extended' }, entry);
@@ -206,6 +208,16 @@ export class MarketService {
             this.record('yahoo', false);
             return bars;
         }
+    }
+
+    /** Whether US equities trade their regular session at `now`, per the exchange calendar. */
+    async usRegularOpen(now: number): Promise<boolean> {
+        const days = await this.bridges.alpaca?.calendar(now - 86_400_000, now + 86_400_000).catch(() => null);
+        if (days) return [...days.values()].some((d) => now >= d.open && now < d.close);
+        const [y, m, d] = localDate('America/New_York', now).split('-').map(Number) as [number, number, number];
+        const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        const tod = localTimeOfDay('America/New_York', now);
+        return wd !== 0 && wd !== 6 && tod >= 9.5 * 3_600_000 && tod < 16 * 3_600_000;
     }
 
     /** Whether the US equity session is in regular hours at `now`, per the exchange calendar. */
@@ -224,7 +236,7 @@ export class MarketService {
         const yahooTicker = (e: CatalogEntry) => e.sources.find((x) => x.bridge === 'yahoo')?.ticker;
         let live = new Map<string, ExtendedQuote>();
         const yahoo = this.bridges.yahoo;
-        if (yahoo?.extendedQuotes && this.healthy('yahoo')) {
+        if (yahoo?.extendedQuotes && this.healthy('yahoo') && !avoids('yahoo')) {
             const tickers = equities.map(yahooTicker).filter((t): t is string => !!t);
             live = await yahoo.extendedQuotes(tickers).catch(() => new Map<string, ExtendedQuote>());
         }
@@ -243,7 +255,7 @@ export class MarketService {
         const out: Array<{ bridge: BridgeId; ticker: string }> = [];
         for (const s of e.sources) if (this.bridge(s.bridge)?.quotes) out.push(s);
         if ((e.class === 'stock' || e.class === 'etf') && this.bridges.finnhub) out.push({ bridge: 'finnhub', ticker: e.symbol });
-        return out;
+        return out.filter((s) => !avoids(s.bridge));
     }
 
     /** Equity trades after the close would move "today's" change — only regular hours count. */

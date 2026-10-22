@@ -12,6 +12,8 @@ import type { Db } from './db';
 import type { AuthService, Session } from './auth/service';
 import type { MarketService } from './market/service';
 import type { LiveHub } from './market/live';
+import type { CachedMarket } from './market/cached-market';
+import type { CacheWarmer } from './market/warmer';
 import type { RelatedMap } from './analytics/related';
 import { applySecurityHeaders, clientIp, isHttps, sameOrigin } from './security';
 import { FailureLimiter, WindowCounter } from './auth/rate-limit';
@@ -20,6 +22,7 @@ import { registerAdminRoutes } from './routes/admin';
 import { registerStorageRoutes } from './routes/storage';
 import { registerMarketRoutes } from './routes/market';
 import { registerInsightRoutes } from './routes/insights';
+import { registerCacheRoutes } from './routes/cache';
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -37,6 +40,9 @@ export interface AppDeps {
     auth: AuthService;
     market: MarketService;
     hub: LiveHub;
+    cached: CachedMarket;
+    /** Absent in tests that do not exercise background warming. */
+    warmer?: CacheWarmer;
     related: RelatedMap;
     logger?: boolean;
 }
@@ -127,6 +133,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     registerStorageRoutes(app, ctx);
     registerMarketRoutes(app, ctx);
     registerInsightRoutes(app, ctx);
+    registerCacheRoutes(app, ctx);
 
     // ── Pages ──────────────────────────────────────────────────────────────
     const webDir = config.webDir;
@@ -147,6 +154,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     app.get('/account', (req, reply) => requireSession(req, reply, 'account.html'));
     app.get('/stats', (req, reply) => requireSession(req, reply, 'stats.html'));
     app.get('/insights', (req, reply) => requireSession(req, reply, 'insights.html'));
+    app.get('/cache', (req, reply) => requireSession(req, reply, 'cache.html'));
     app.get('/login', (req, reply) => (req.session ? reply.redirect('/') : sendPage(reply, 'login.html')));
 
     if (fs.existsSync(path.join(webDir, 'assets'))) {

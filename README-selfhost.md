@@ -150,6 +150,10 @@ docker compose exec app node -e "require('node:sqlite').backup(new (require('nod
 docker compose cp app:/data/backup.sqlite ./vela-backup.sqlite
 ```
 
+The `cache/` folder (`cache/cache.sqlite` holds the market-data cache behind the **Cache** page)
+only copies provider data. Leave it out of backups, or delete it at any time with the stack
+stopped: charts then load from the providers until the cache warms up again.
+
 **Updates.**
 
 ```bash
