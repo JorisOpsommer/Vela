@@ -149,6 +149,10 @@ export interface WorkspaceState {
     indicatorFavorites?: string[];
     /** The drawing tools' remembered settings, magnet and stay mode — a SHARED preference. */
     drawingTools?: DrawingToolsState;
+    /** Indicator settings the user last set, by native type (`{ rsi: { color: '#…', length: 21 } }`)
+     *  — a fresh add of that type starts from them. Keys are the indicator's own input keys, and
+     *  only settings that differ from the declared defaults are kept. A SHARED preference. */
+    indicatorDefaults?: Record<string, Record<string, string | number | boolean>>;
     /** The docked side panels: which one is open, and the widths the user dragged. */
     panels?: PanelsState;
     /** Per-chart state, one entry per SLOT (a single `c1` entry for the widget).
@@ -221,6 +225,8 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     }
     const tools = sanitizeDrawingTools(d.drawingTools);
     if (tools) out.drawingTools = tools;
+    const indDefaults = sanitizeIndicatorDefaults(d.indicatorDefaults);
+    if (indDefaults) out.indicatorDefaults = indDefaults;
     const sync = sanitizeSync(d.sync);
     if (sync) out.sync = sync;
     const tracks = sanitizeTrackSizes(d.trackSizes);
@@ -230,6 +236,23 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     const ext = sanitizeExt(d.ext);
     if (ext) out.ext = ext;
     return out;
+}
+
+/** Only scalar settings survive — an indicator's inputs are strings, numbers or booleans. A
+ *  type left with no entries is dropped, so an empty map never reads as a saved preference. */
+function sanitizeIndicatorDefaults(raw: unknown): Record<string, Record<string, string | number | boolean>> | null {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out: Record<string, Record<string, string | number | boolean>> = {};
+    for (const [type, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (type.length === 0 || value == null || typeof value !== 'object' || Array.isArray(value)) continue;
+        const settings: Record<string, string | number | boolean> = {};
+        for (const [key, setting] of Object.entries(value as Record<string, unknown>)) {
+            const scalar = typeof setting === 'boolean' || (typeof setting === 'number' && Number.isFinite(setting)) || (typeof setting === 'string' && setting.length > 0);
+            if (key.length > 0 && scalar) settings[key] = setting as string | number | boolean;
+        }
+        if (Object.keys(settings).length > 0) out[type] = settings;
+    }
+    return Object.keys(out).length > 0 ? out : null;
 }
 
 /** The `ext` bag passes through OPAQUELY (the rendererConfig/drawings precedent): only

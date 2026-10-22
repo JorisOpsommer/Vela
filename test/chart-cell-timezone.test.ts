@@ -169,6 +169,8 @@ function makeDeps(feed: MultiProviderFeed, timezone: () => string, over: Partial
         onIndicatorsChanged: () => {},
         onStatusPrefsChanged: () => {},
         onStateDirty: () => {},
+        indicatorDefaults: () => undefined,
+        rememberIndicatorDefaults: () => {},
         toast: () => {},
         ...over,
     };
