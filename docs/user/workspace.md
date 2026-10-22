@@ -297,9 +297,12 @@ The state SURFACE is the product; persistence is an adapter on top of it.
 ```ts
 const state = ws.getState();
 // → { version: 1, layout, trackSizes?, activeCellId?, sync?, timezone?, favorites?,
-//     timeframeFavorites?, indicatorFavorites?, drawingTools?, charts: […], ext? }
+//     timeframeFavorites?, indicatorFavorites?, drawingTools?, indicatorDefaults?, charts: […], ext? }
 // `indicatorFavorites` = the indicators starred in the picker, which lists them first
 // (`native:<type>` for built-ins, `script:<name>` for manifest entries).
+// `indicatorDefaults` = the colors last set on each native indicator type, e.g.
+// `{ rsi: { overboughtColor: '#ec4899' } }`: a fresh add of that type starts from them. Only
+// color inputs are remembered; restoring a document does not change them.
 // `drawingTools` = { defaults?, templates?, magnet?, stay? }: each drawing tool's remembered
 // settings (what its next drawing starts from), its saved styles, the magnet and
 // stay-in-drawing-mode — shared by every chart of the workspace, like the favorite stars.

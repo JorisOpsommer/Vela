@@ -167,6 +167,8 @@ function makeCell(): ChartCell {
         onIndicatorsChanged: () => {},
         onStatusPrefsChanged: () => {},
         onStateDirty: () => {},
+        indicatorDefaults: () => undefined,
+        rememberIndicatorDefaults: () => {},
         toast: () => {},
     };
     const host = document.createElement('div');

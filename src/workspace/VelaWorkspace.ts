@@ -263,6 +263,11 @@ export function resolveTyping(key: string, open: TypingState): { target: 'symbol
     return null;
 }
 
+/** A detached copy, so the live map and a state snapshot never share their color objects. */
+function copyIndicatorDefaults(src: Record<string, Record<string, string>>): Record<string, Record<string, string>> {
+    return Object.fromEntries(Object.entries(src).map(([type, colors]) => [type, { ...colors }]));
+}
+
 export class VelaWorkspace {
     readonly root: HTMLElement;
     /** The shortcut system — one manager for the whole workspace, routed to the active cell. */
@@ -337,6 +342,8 @@ export class VelaWorkspace {
     /** Favorite timeframes — the shared topbar's quick-switch chips, one set for the grid. */
     private tfFavs: string[] = [];
     private indFavs: string[] = [];
+    /** Indicator colors the user last set, by native type — a fresh add starts from them. */
+    private indDefaults: Record<string, Record<string, string>> = {};
     /** Live sync configuration (mutable copy of the option). */
     private readonly syncOpts: SyncOptions = {};
     // ── persistence (state surface + adapter plumbing) ──
@@ -456,6 +463,7 @@ export class VelaWorkspace {
         if (boot?.timeframeFavorites) this.tfFavs = [...boot.timeframeFavorites];
         if (boot?.indicatorFavorites) this.indFavs = [...boot.indicatorFavorites];
         if (boot?.drawingTools) this.adoptDrawingTools(boot.drawingTools);
+        if (boot?.indicatorDefaults) this.indDefaults = copyIndicatorDefaults(boot.indicatorDefaults);
         const sync = boot?.sync ?? opts.sync;
         for (const kind of SYNC_KINDS) this.applySyncSetting(kind, sync?.[kind]);
         // Single-chart mode pins the grid to '1' — a persisted document's layout is
@@ -1016,6 +1024,7 @@ export class VelaWorkspace {
         if (this.indFavs.length > 0) state.indicatorFavorites = [...this.indFavs];
         const tools = this.drawingToolsState();
         if (tools) state.drawingTools = tools;
+        if (Object.keys(this.indDefaults).length > 0) state.indicatorDefaults = copyIndicatorDefaults(this.indDefaults);
         if (this.trackSizes.size > 0) state.trackSizes = Object.fromEntries([...this.trackSizes].map(([k, v]) => [k, { ...v }]));
         const panels = this.dock.getState();
         if (panels) state.panels = panels;
@@ -1055,6 +1064,7 @@ export class VelaWorkspace {
         if (!st) return;
         if (st.favorites) this.favs = [...st.favorites]; // newborn cells inherit below (buildCells)
         if (st.drawingTools) this.adoptDrawingTools(st.drawingTools); // ditto; the active cell takes the magnet/stay mirrors
+        if (st.indicatorDefaults) this.indDefaults = copyIndicatorDefaults(st.indicatorDefaults);
         if (st.timeframeFavorites) {
             this.tfFavs = [...st.timeframeFavorites];
             this.topbar.setTimeframeFavorites(this.tfFavs);
@@ -1486,6 +1496,17 @@ export class VelaWorkspace {
         return Object.keys(out).length > 0 ? out : null;
     }
 
+    /** Remember a native type's colors for its next add (an empty set forgets the type). The
+     *  dirty mark only fires when the remembered set actually changed. */
+    private rememberIndicatorDefaults(type: string, colors: Record<string, string>): void {
+        const next = { ...this.indDefaults };
+        if (Object.keys(colors).length > 0) next[type] = { ...colors };
+        else delete next[type];
+        if (JSON.stringify(next) === JSON.stringify(this.indDefaults)) return;
+        this.indDefaults = next;
+        this.markStateDirty();
+    }
+
     /** Debounced dirty mark: one `state:changed` (+ one storage write in persist mode)
      *  per burst of edits, flushed hard on unload/destroy. */
     private markStateDirty(): void {
@@ -1719,6 +1740,8 @@ export class VelaWorkspace {
                 onIndicatorsChanged: (id) => this.onCellIndicatorsChanged(id),
                 onStatusPrefsChanged: (id) => this.propagateStylePrefs(id),
                 onStateDirty: () => this.markStateDirty(),
+                indicatorDefaults: (type) => this.indDefaults[type],
+                rememberIndicatorDefaults: (type, colors) => this.rememberIndicatorDefaults(type, colors),
                 manifestSettled: () => this.manifestSettled,
                 toast: (message, kind, durationMs) => this.toastHost.show(message, kind, durationMs),
                 clock: this.clock,

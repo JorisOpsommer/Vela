@@ -177,6 +177,8 @@ function makeDeps(over: Partial<CellDeps> = {}): CellDeps {
         onIndicatorsChanged: () => {},
         onStatusPrefsChanged: () => {},
         onStateDirty: () => {},
+        indicatorDefaults: () => undefined,
+        rememberIndicatorDefaults: () => {},
         toast: () => {},
         ...over,
     };

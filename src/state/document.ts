@@ -149,6 +149,10 @@ export interface WorkspaceState {
     indicatorFavorites?: string[];
     /** The drawing tools' remembered settings, magnet and stay mode — a SHARED preference. */
     drawingTools?: DrawingToolsState;
+    /** Indicator colors the user last set, by native type (`{ rsi: { color: '#…' } }`) —
+     *  a fresh add of that type starts from them. Only colors are remembered; the keys are
+     *  the indicator's own input keys. A SHARED preference. */
+    indicatorDefaults?: Record<string, Record<string, string>>;
     /** The docked side panels: which one is open, and the widths the user dragged. */
     panels?: PanelsState;
     /** Per-chart state, one entry per SLOT (a single `c1` entry for the widget).
@@ -221,6 +225,8 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     }
     const tools = sanitizeDrawingTools(d.drawingTools);
     if (tools) out.drawingTools = tools;
+    const indDefaults = sanitizeIndicatorDefaults(d.indicatorDefaults);
+    if (indDefaults) out.indicatorDefaults = indDefaults;
     const sync = sanitizeSync(d.sync);
     if (sync) out.sync = sync;
     const tracks = sanitizeTrackSizes(d.trackSizes);
@@ -230,6 +236,22 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     const ext = sanitizeExt(d.ext);
     if (ext) out.ext = ext;
     return out;
+}
+
+/** Only string-valued entries survive — the remembered values are colors. A type left with
+ *  no entries is dropped, so an empty map never reads as a saved preference. */
+function sanitizeIndicatorDefaults(raw: unknown): Record<string, Record<string, string>> | null {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out: Record<string, Record<string, string>> = {};
+    for (const [type, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (type.length === 0 || value == null || typeof value !== 'object' || Array.isArray(value)) continue;
+        const colors: Record<string, string> = {};
+        for (const [key, color] of Object.entries(value as Record<string, unknown>)) {
+            if (key.length > 0 && typeof color === 'string' && color.length > 0) colors[key] = color;
+        }
+        if (Object.keys(colors).length > 0) out[type] = colors;
+    }
+    return Object.keys(out).length > 0 ? out : null;
 }
 
 /** The `ext` bag passes through OPAQUELY (the rendererConfig/drawings precedent): only
