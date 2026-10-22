@@ -90,4 +90,26 @@ describe('AlpacaBridge — long intraday history', () => {
         const again = calls.filter((c) => c.endsWith('/bars')).length - first;
         expect(again).toBeLessThanOrEqual(3);
     });
+
+    it('a finished daily bar keeps its consolidated close instead of the IEX tail close', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 22, 12)); // Thu Oct 22 2026, 08:00 ET
+        const days = [Date.UTC(2026, 9, 19, 4), Date.UTC(2026, 9, 20, 4), Date.UTC(2026, 9, 21, 4)];
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (input: string | URL) => {
+                const p = new URL(String(input)).searchParams;
+                const from = Date.parse(p.get('start')!);
+                const iex = p.get('feed') === 'iex';
+                // IEX also has today's pre-market bar; SIP does not yet.
+                const list = iex ? [...days, Date.UTC(2026, 9, 22, 4)] : days;
+                const bars = list.filter((t) => t >= from).map((t) => ({ t: new Date(t).toISOString(), o: 1, h: 1, l: 1, c: iex ? 343.935 : 343.99, v: 1 }));
+                return json({ bars: { AAPL: bars }, next_page_token: null });
+            }),
+        );
+        const alpaca = new AlpacaBridge({ keyId: 'k', secret: 's', dataUrl: 'https://data.test', tradingUrl: 'https://trading.test/v2' });
+        const bars = await alpaca.getBars('AAPL', parseTimeframe('1D')!, { limit: 10, session: 'regular' }, AAPL);
+        expect(bars.find((b) => b.time === days[2])!.close).toBe(343.99);
+        expect(bars.find((b) => b.time === Date.UTC(2026, 9, 22, 4))!.close).toBe(343.935);
+    });
 });

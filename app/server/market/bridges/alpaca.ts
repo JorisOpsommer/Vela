@@ -164,7 +164,8 @@ export class AlpacaBridge implements Bridge {
         } else {
             const sipEnd = Math.min(to, now - SIP_DELAY_MS);
             const history = sipEnd > from ? await this.fetchHistory('sip', ticker, base, baseTf, from, sipEnd) : [];
-            const tail = to > now - SIP_DELAY_MS - 60_000 ? await this.fetchTail(ticker, base, baseTf, now) : [];
+            // IEX refines only the bars SIP has not closed yet; a finished bar keeps its consolidated close.
+            const tail = to > now - SIP_DELAY_MS - 60_000 ? (await this.fetchTail(ticker, base, baseTf, now)).filter((b) => b.time + nominalMs(base) > sipEnd) : [];
             bars = mergeTail(history, tail);
             if (base.unit === 'minute') bars = await this.filterSession(bars, regular, from, to);
         }
