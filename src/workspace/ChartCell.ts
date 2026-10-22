@@ -179,11 +179,11 @@ export interface CellDeps {
     onPriceStyleChanged(id: string): void;
     /** The cell's indicator ledger changed (count/picker refresh upstream). */
     onIndicatorsChanged(id: string): void;
-    /** The colors a fresh add of this native type starts from (undefined ⇒ declared defaults). */
-    indicatorDefaults(type: string): Record<string, string> | undefined;
-    /** A native indicator's colors were set by the user: remember them for the next add of
-     *  that type. An empty map forgets the type. */
-    rememberIndicatorDefaults(type: string, colors: Record<string, string>): void;
+    /** The settings a fresh add of this native type starts from (undefined ⇒ declared defaults). */
+    indicatorDefaults(type: string): Record<string, InputValue> | undefined;
+    /** A native indicator's settings were set by the user: remember the full set for the next
+     *  add of that type. An empty set forgets the type. */
+    rememberIndicatorDefaults(type: string, settings: Record<string, InputValue>): void;
     /** A Status line tab or watermark pref changed on this cell (the style link mirrors upstream). */
     onStatusPrefsChanged(id: string): void;
     /** Persistable per-cell state changed outside the market/indicator channels
@@ -273,8 +273,8 @@ export class ChartCell {
     private replaying = false;
     /** True while a restore writes an indicator's stored inputs back (not a user edit). */
     private restoringNatives = false;
-    /** Each native indicator's color inputs at the last input event, by instance id. */
-    private nativeColorSeen = new Map<string, string>();
+    /** Each native indicator's settings at its last input event, by instance id. */
+    private nativeSettingsSeen = new Map<string, Record<string, InputValue>>();
     private readonly watermark: Watermark | null;
     /** Bottom-center hover cluster, pinned to the price plot: drag handle, zoom in/out, maximize/restore, reset view. */
     private readonly cellControls: CellControls;
@@ -561,7 +561,7 @@ export class ChartCell {
         // a hidden indicator came back visible on reload (nothing marked the doc dirty).
         this.inner.on('indicator:visibility', () => this.deps.onStateDirty());
         this.inner.on('indicator:removed', ({ id }) => {
-            this.nativeColorSeen.delete(id);
+            this.nativeSettingsSeen.delete(id);
             if (this.destroyed) return;
             // Out-of-band removals (legend ✕, object tree, middle-click, handle.remove())
             // must drop the matching manifest-instance ledger entry too — a stale entry
@@ -1422,9 +1422,9 @@ export class ChartCell {
     addNative(type: string): void {
         const chart = this.inner;
         if (!chart) return;
-        // A fresh add starts from the account's remembered colors; redo replays the same start.
-        const colors = this.deps.indicatorDefaults(type);
-        const options = colors ? { inputs: { ...colors } } : undefined;
+        // A fresh add starts from the account's remembered settings; redo replays the same start.
+        const settings = this.deps.indicatorDefaults(type);
+        const options = settings ? { inputs: { ...settings } } : undefined;
         const before = new Set(chart.indicators().map((h) => h.id));
         let added: IndicatorHandle | null = chart.addNativeIndicator(type, options);
         this.syncPresentNatives();
@@ -1453,45 +1453,47 @@ export class ChartCell {
         }
     }
 
-    /** The color inputs of a native indicator as they stand now. */
-    private colorInputsOf(handle: IndicatorHandle): Record<string, string> {
+    /** The settings of a native indicator as they stand now: every scalar input. */
+    private settingsOf(handle: IndicatorHandle): Record<string, InputValue> {
         const values = handle.inputValues();
-        const out: Record<string, string> = {};
+        const out: Record<string, InputValue> = {};
         for (const schema of handle.inputs) {
             const value = values[schema.key];
-            if (schema.type === 'color' && typeof value === 'string') out[schema.key] = value;
+            if (value !== undefined) out[schema.key] = value;
         }
         return out;
     }
 
-    /** The color inputs a native indicator starts from: its declared defaults. */
-    private declaredColorsOf(handle: IndicatorHandle): Record<string, string> {
-        const out: Record<string, string> = {};
-        for (const schema of handle.inputs) {
-            if (schema.type === 'color' && typeof schema.defval === 'string') out[schema.key] = schema.defval;
-        }
+    /** The settings a native indicator starts from: its declared defaults. */
+    private declaredSettingsOf(handle: IndicatorHandle): Record<string, InputValue> {
+        const out: Record<string, InputValue> = {};
+        for (const schema of handle.inputs) out[schema.key] = schema.defval;
         return out;
     }
 
-    /** An input event on a native indicator. Only a change to its colors reaches the account:
-     *  the colors that differ from the declared defaults are remembered for the type, and an
-     *  empty set forgets it. Lengths, thresholds and restores leave the remembered colors alone.
-     *  An instance with no earlier event is compared with its declared defaults. */
+    /** An input event on a native indicator. Only the keys that changed on this event reach the
+     *  account: a changed setting is remembered for the type when it differs from its declared
+     *  default, and forgotten when it returns to it. Other remembered settings are kept, so an
+     *  edit on an older instance cannot wipe them. Restores are not edits. An instance with no
+     *  earlier event is compared with its declared defaults. */
     private noteNativeInputs(id: string): void {
         const handle = this.inner?.indicators().find((h) => h.id === id);
         const type = handle?.nativeType;
         if (!handle || !type) return;
-        const colors = this.colorInputsOf(handle);
-        const key = JSON.stringify(colors);
-        const seen = this.nativeColorSeen.get(id) ?? JSON.stringify(this.declaredColorsOf(handle));
-        this.nativeColorSeen.set(id, key);
-        if (this.restoringNatives || seen === key) return;
-        const changed: Record<string, string> = {};
+        const now = this.settingsOf(handle);
+        const before = this.nativeSettingsSeen.get(id) ?? this.declaredSettingsOf(handle);
+        this.nativeSettingsSeen.set(id, now);
+        if (this.restoringNatives) return;
+        const remembered: Record<string, InputValue> = { ...(this.deps.indicatorDefaults(type) ?? {}) };
+        let touched = false;
         for (const schema of handle.inputs) {
-            const color = colors[schema.key];
-            if (schema.type === 'color' && color !== undefined && color !== schema.defval) changed[schema.key] = color;
+            const value = now[schema.key];
+            if (value === undefined || value === before[schema.key]) continue;
+            touched = true;
+            if (value !== schema.defval) remembered[schema.key] = value;
+            else delete remembered[schema.key];
         }
-        this.deps.rememberIndicatorDefaults(type, changed);
+        if (touched) this.deps.rememberIndicatorDefaults(type, remembered);
     }
 
     private removeNative(handle: IndicatorHandle): void {

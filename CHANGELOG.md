@@ -6,10 +6,10 @@ All notable changes to Vela, newest first.
 
 ### Added
 
-- **Indicator colors stick to your account.** When you change an indicator's colors, the next
-  indicator of that type you add starts with those colors, and they are saved with your
-  workspace. Lengths and thresholds still start from their defaults, and setting a color back to
-  its default forgets the remembered one.
+- **Indicator settings stick to your account.** When you change an indicator's settings, such as
+  its colors, length or thresholds, the next indicator of that type you add starts with those
+  values, and they are saved with your workspace. Setting a value back to its default forgets the
+  remembered one.
 
 - **See when a symbol's data runs late.** A data provider can tell the chart that a symbol
   comes from a delayed feed by returning `delay_minutes` from `getSymbolInfo`. The status line

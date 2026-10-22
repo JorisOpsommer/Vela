@@ -8,6 +8,7 @@
 // exception — always aggregated, tagged by cell). Statusline/watermark/context-menu/
 // undo-history are per-cell; everything else is shared.
 import type { DataProvider } from '../core/ports/DataProvider';
+import type { InputValue } from '../core/model/inputs';
 import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { VelaTheme, NativeBackend, VelaOptions } from '../core/options';
 import type { VelaShellOptions } from '../widget/shell-options';
@@ -264,7 +265,7 @@ export function resolveTyping(key: string, open: TypingState): { target: 'symbol
 }
 
 /** A detached copy, so the live map and a state snapshot never share their color objects. */
-function copyIndicatorDefaults(src: Record<string, Record<string, string>>): Record<string, Record<string, string>> {
+function copyIndicatorDefaults(src: Record<string, Record<string, InputValue>>): Record<string, Record<string, InputValue>> {
     return Object.fromEntries(Object.entries(src).map(([type, colors]) => [type, { ...colors }]));
 }
 
@@ -342,8 +343,8 @@ export class VelaWorkspace {
     /** Favorite timeframes — the shared topbar's quick-switch chips, one set for the grid. */
     private tfFavs: string[] = [];
     private indFavs: string[] = [];
-    /** Indicator colors the user last set, by native type — a fresh add starts from them. */
-    private indDefaults: Record<string, Record<string, string>> = {};
+    /** Indicator settings the user last set, by native type — a fresh add starts from them. */
+    private indDefaults: Record<string, Record<string, InputValue>> = {};
     /** Live sync configuration (mutable copy of the option). */
     private readonly syncOpts: SyncOptions = {};
     // ── persistence (state surface + adapter plumbing) ──
@@ -1496,11 +1497,11 @@ export class VelaWorkspace {
         return Object.keys(out).length > 0 ? out : null;
     }
 
-    /** Remember a native type's colors for its next add (an empty set forgets the type). The
+    /** Remember a native type's settings for its next add (an empty set forgets the type). The
      *  dirty mark only fires when the remembered set actually changed. */
-    private rememberIndicatorDefaults(type: string, colors: Record<string, string>): void {
+    private rememberIndicatorDefaults(type: string, settings: Record<string, InputValue>): void {
         const next = { ...this.indDefaults };
-        if (Object.keys(colors).length > 0) next[type] = { ...colors };
+        if (Object.keys(settings).length > 0) next[type] = { ...settings };
         else delete next[type];
         if (JSON.stringify(next) === JSON.stringify(this.indDefaults)) return;
         this.indDefaults = next;

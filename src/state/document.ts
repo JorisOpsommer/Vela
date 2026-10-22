@@ -149,10 +149,10 @@ export interface WorkspaceState {
     indicatorFavorites?: string[];
     /** The drawing tools' remembered settings, magnet and stay mode — a SHARED preference. */
     drawingTools?: DrawingToolsState;
-    /** Indicator colors the user last set, by native type (`{ rsi: { color: '#…' } }`) —
-     *  a fresh add of that type starts from them. Only colors are remembered; the keys are
-     *  the indicator's own input keys. A SHARED preference. */
-    indicatorDefaults?: Record<string, Record<string, string>>;
+    /** Indicator settings the user last set, by native type (`{ rsi: { color: '#…', length: 21 } }`)
+     *  — a fresh add of that type starts from them. Keys are the indicator's own input keys, and
+     *  only settings that differ from the declared defaults are kept. A SHARED preference. */
+    indicatorDefaults?: Record<string, Record<string, string | number | boolean>>;
     /** The docked side panels: which one is open, and the widths the user dragged. */
     panels?: PanelsState;
     /** Per-chart state, one entry per SLOT (a single `c1` entry for the widget).
@@ -238,18 +238,19 @@ export function sanitizeState(doc: unknown): WorkspaceState | null {
     return out;
 }
 
-/** Only string-valued entries survive — the remembered values are colors. A type left with
- *  no entries is dropped, so an empty map never reads as a saved preference. */
-function sanitizeIndicatorDefaults(raw: unknown): Record<string, Record<string, string>> | null {
+/** Only scalar settings survive — an indicator's inputs are strings, numbers or booleans. A
+ *  type left with no entries is dropped, so an empty map never reads as a saved preference. */
+function sanitizeIndicatorDefaults(raw: unknown): Record<string, Record<string, string | number | boolean>> | null {
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const out: Record<string, Record<string, string>> = {};
+    const out: Record<string, Record<string, string | number | boolean>> = {};
     for (const [type, value] of Object.entries(raw as Record<string, unknown>)) {
         if (type.length === 0 || value == null || typeof value !== 'object' || Array.isArray(value)) continue;
-        const colors: Record<string, string> = {};
-        for (const [key, color] of Object.entries(value as Record<string, unknown>)) {
-            if (key.length > 0 && typeof color === 'string' && color.length > 0) colors[key] = color;
+        const settings: Record<string, string | number | boolean> = {};
+        for (const [key, setting] of Object.entries(value as Record<string, unknown>)) {
+            const scalar = typeof setting === 'boolean' || (typeof setting === 'number' && Number.isFinite(setting)) || (typeof setting === 'string' && setting.length > 0);
+            if (key.length > 0 && scalar) settings[key] = setting as string | number | boolean;
         }
-        if (Object.keys(colors).length > 0) out[type] = colors;
+        if (Object.keys(settings).length > 0) out[type] = settings;
     }
     return Object.keys(out).length > 0 ? out : null;
 }

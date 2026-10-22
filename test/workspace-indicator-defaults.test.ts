@@ -92,12 +92,32 @@ describe('indicator colors as account defaults', () => {
         expect(JSON.parse(JSON.stringify(second.getState())).indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK } });
     });
 
-    it('a length edit does not change the remembered colors', () => {
+    it('a length edit is remembered alongside the colors', () => {
         const ws = mountWorkspace();
         ws.cell('c1')!.addNative('rsi');
         rsiOf(ws).setInput('overboughtColor', PINK);
         rsiOf(ws).setInput('length', 21);
-        expect(JSON.parse(JSON.stringify(ws.getState())).indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK } });
+        expect(JSON.parse(JSON.stringify(ws.getState())).indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK, length: 21 } });
+    });
+
+    it('an edit on an older instance keeps the colors the account already remembers', () => {
+        const ws = mountWorkspace();
+        ws.cell('c1')!.addNative('rsi');
+        rsiOf(ws).setInput('overboughtColor', PINK);
+        const older = rsiOf(ws);
+        older.remove();
+        ws.cell('c1')!.addNative('rsi');
+        // The re-added instance starts from the account; a length change on it must not drop the color.
+        rsiOf(ws).setInput('length', 21);
+        expect(ws.getState().indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK, length: 21 } });
+    });
+
+    it('a setting that returns to its declared default is forgotten', () => {
+        const ws = mountWorkspace();
+        ws.cell('c1')!.addNative('rsi');
+        rsiOf(ws).setInput('length', 21);
+        rsiOf(ws).setInput('length', 14);
+        expect(ws.getState().indicatorDefaults).toBeUndefined();
     });
 
     it('setting a color back to its declared default forgets it', () => {
@@ -114,20 +134,20 @@ describe('indicator colors as account defaults', () => {
         expect(ws.getState().indicatorDefaults).toBeUndefined();
     });
 
-    it('a stored document keeps only string color values, and drops empty types', () => {
+    it('a stored document keeps only scalar settings, and drops empty types', () => {
         const ws = mountWorkspace();
         ws.applyState({
             version: 1,
             layout: '1',
             charts: [{ id: 'c1', symbol: 'SPY', timeframe: 'D', indicators: { manifest: [], natives: [] } }],
             indicatorDefaults: {
-                rsi: { overboughtColor: PINK, length: 14, color: 7 },
+                rsi: { overboughtColor: PINK, length: 14, showLevels: true, junk: { nested: 1 }, blank: '' },
                 '': { color: PURPLE },
                 macd: 'nope',
                 volume: {},
             },
         });
-        expect(ws.getState().indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK } });
+        expect(ws.getState().indicatorDefaults).toEqual({ rsi: { overboughtColor: PINK, length: 14, showLevels: true } });
     });
 });
 
@@ -143,37 +163,39 @@ function startWithout(ws: VelaWorkspace, type: string): void {
 interface Case {
     type: string;
     colors: Record<string, string>;
+    /** Non-color settings, each different from its declared default. */
+    settings?: Record<string, string | number | boolean>;
 }
 
 // Specific colors per indicator, each different from its declared default.
 const CASES: Case[] = [
-    { type: 'rsi', colors: { color: PURPLE, overboughtColor: PINK, oversoldColor: RED, levelsColor: '#64748b' } },
+    { type: 'rsi', colors: { color: PURPLE, overboughtColor: PINK, oversoldColor: RED, levelsColor: '#64748b' }, settings: { length: 21, overbought: 80 } },
     { type: 'macd', colors: { color: '#2dd4bf', signalColor: '#f59e0b', growAboveColor: '#a3e635', growBelowColor: '#f87171' } },
     { type: 'bollinger-bands', colors: { basisColor: '#f59e0b', color: '#38bdf8', fillColor: '#38bdf833' } },
-    { type: 'stochastic', colors: { kColor: '#22d3ee', dColor: '#f472b6' } },
+    { type: 'stochastic', colors: { kColor: '#22d3ee', dColor: '#f472b6' }, settings: { kLength: 9 } },
     { type: 'volume', colors: { upColor: '#34d399', downColor: '#fb7185' } },
     { type: 'supertrend', colors: { upColor: '#84cc16', downColor: '#e11d48' } },
 ];
 
-describe.each(CASES)('$type colors survive remove and re-add', ({ type, colors }) => {
+describe.each(CASES)('$type settings survive remove and re-add', ({ type, colors, settings = {} }) => {
     it('a re-added indicator keeps the colors the user set on the removed one', () => {
         const ws = mountWorkspace();
         startWithout(ws, type);
         ws.cell('c1')!.addNative(type);
         const first = nativeOf(ws, type)!;
-        for (const [key, value] of Object.entries(colors)) first.setInput(key, value);
+        for (const [key, value] of Object.entries({ ...colors, ...settings })) first.setInput(key, value);
         first.remove();
 
         ws.cell('c1')!.addNative(type);
         const again = nativeOf(ws, type)!.inputValues();
-        for (const [key, value] of Object.entries(colors)) expect(again[key], key).toBe(value);
+        for (const [key, value] of Object.entries({ ...colors, ...settings })) expect(again[key], key).toBe(value);
     });
 
     it('the colors come back after a save and reload of the workspace', () => {
         const first = mountWorkspace();
         startWithout(first, type);
         first.cell('c1')!.addNative(type);
-        for (const [key, value] of Object.entries(colors)) nativeOf(first, type)!.setInput(key, value);
+        for (const [key, value] of Object.entries({ ...colors, ...settings })) nativeOf(first, type)!.setInput(key, value);
         nativeOf(first, type)!.remove();
         const saved = JSON.parse(JSON.stringify(first.getState()));
 
@@ -182,7 +204,7 @@ describe.each(CASES)('$type colors survive remove and re-add', ({ type, colors }
         startWithout(reloaded, type);
         reloaded.cell('c1')!.addNative(type);
         const again = nativeOf(reloaded, type)!.inputValues();
-        for (const [key, value] of Object.entries(colors)) expect(again[key], key).toBe(value);
+        for (const [key, value] of Object.entries({ ...colors, ...settings })) expect(again[key], key).toBe(value);
     });
 });
 
@@ -200,7 +222,7 @@ describe('indicator defaults stay separate per type', () => {
         expect(stoch.inputValues()).toMatchObject(declared);
     });
 
-    it('settings other than colors go back to their defaults on re-add', () => {
+    it('a non-color setting is remembered on re-add, like a color', () => {
         const ws = mountWorkspace();
         startWithout(ws, 'rsi');
         ws.cell('c1')!.addNative('rsi');
@@ -208,6 +230,6 @@ describe('indicator defaults stay separate per type', () => {
         nativeOf(ws, 'rsi')!.remove();
 
         ws.cell('c1')!.addNative('rsi');
-        expect(nativeOf(ws, 'rsi')!.inputValues().length).toBe(14);
+        expect(nativeOf(ws, 'rsi')!.inputValues().length).toBe(21);
     });
 });
