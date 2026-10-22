@@ -1,26 +1,25 @@
 // The cache warmer: prefetches every account's charts and watchlist prices into the on-disk
-// cache, so the next visit paints from it. It runs only while the providers are quiet — no
-// user request reached one for a few minutes and no chart is streaming — and steps aside
-// before its next request the moment a user shows up. Passes follow the US session: a full
-// one after the close, a quote refresh before the open, a few cheap top-ups during the day,
-// and crypto around the clock.
+// cache, so the next visit paints from it. It runs only while nobody is charting — no user
+// action reached a provider for a few minutes; screens left open at idle (live charts,
+// watchlist refreshes) do not count — and never takes more than half of any provider (see
+// BACKGROUND_SHARE). The moment someone starts charting its next request gives way, mid-step
+// included. Passes follow the US session: a full one after the close, a quote refresh before
+// the open, a few cheap top-ups during the day, and crypto around the clock.
 import type { Db } from '../db';
 import type { BridgeId } from './types';
 import type { CachedMarket } from './cached-market';
 import type { LiveHub } from './live';
 import { activity, runInBackground } from './background';
-import { metrics } from './metrics';
+import { BACKGROUND_SHARE, BackgroundYield, setBackgroundGate } from './limits';
 import { collectTargets, type WarmTarget } from './warm-targets';
 import { localDate, zonedWallTime } from './timeframes';
 
 export type PassKind = 'close' | 'premarket' | 'intraday' | 'crypto' | 'manual';
 
 export interface WarmerOptions {
-    /** How long the providers must have gone without a user call. */
+    /** How long the providers must have gone without a call from someone charting. */
     quietMs?: number;
     tickMs?: number;
-    /** Share of a provider's request bucket the warmer always leaves free. */
-    reserve?: number;
     /** Pause between two warm requests. */
     stepGapMs?: number;
 }
@@ -65,7 +64,6 @@ export class CacheWarmer {
     private lastPurge = 0;
     private readonly bootAt: number;
     private readonly quietMs: number;
-    private readonly reserve: number;
     private readonly stepGapMs: number;
     private readonly tickMs: number;
 
@@ -77,11 +75,12 @@ export class CacheWarmer {
         private readonly now: () => number = Date.now,
     ) {
         this.quietMs = opts.quietMs ?? 3 * 60_000;
-        this.reserve = opts.reserve ?? 0.5;
         this.stepGapMs = opts.stepGapMs ?? 250;
         this.tickMs = opts.tickMs ?? 30_000;
         this.bootAt = now();
         this.cached.store.abandonRunning();
+        // Every background request checks this first, so a step stops at its next request.
+        setBackgroundGate(() => this.quiet());
     }
 
     start(): void {
@@ -92,6 +91,7 @@ export class CacheWarmer {
     stop(): void {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
+        setBackgroundGate(null);
     }
 
     /** Ask for a full pass at the next quiet moment. */
@@ -100,9 +100,8 @@ export class CacheWarmer {
         void this.tick();
     }
 
-    /** How long the providers have gone without a user call, or 0 while a chart streams. */
+    /** How long no one charting has reached a provider. Idle open screens do not count. */
     quietFor(): number {
-        if (this.hub.stats().topics > 0) return 0;
         return Math.max(0, this.now() - Math.max(activity.lastUserCall(), this.bootAt));
     }
 
@@ -149,9 +148,7 @@ export class CacheWarmer {
     }
 
     private waitReason(): string {
-        const streams = this.hub.stats().topics;
-        if (streams > 0) return `${streams} chart stream${streams === 1 ? '' : 's'} open`;
-        return this.quiet() ? 'quiet — starts on the next round' : 'a user reached a provider recently';
+        return this.quiet() ? 'quiet — starts on the next round' : 'someone is charting';
     }
 
     private progress() {
@@ -185,12 +182,6 @@ export class CacheWarmer {
         while (p.index < p.steps.length) {
             if (!this.quiet()) return this.wait();
             const step = p.steps[p.index]!;
-            const bridge = step.target ? this.cached.market.resolve(step.target.symbol)?.sources[0]?.bridge : undefined;
-            if (bridge && metrics.headroom(bridge) < this.reserve) {
-                this.state = 'waiting';
-                this.reason = `leaving ${bridge}'s request budget to users`;
-                return;
-            }
             const before = activity.series(1)[0]!.background;
             const beforeMinute = Math.floor(this.now() / 60_000);
             try {
@@ -200,6 +191,13 @@ export class CacheWarmer {
                 }, { avoid });
                 p.done += 1;
             } catch (err) {
+                // Giving way is not a failure: the step stays next in line.
+                if (err instanceof BackgroundYield) {
+                    if (err.reason === 'user') return this.wait();
+                    this.state = 'waiting';
+                    this.reason = 'holding under half of a provider';
+                    return;
+                }
                 if ((err as { status?: number }).status === 409 || (err as { status?: number }).status === 400) p.skipped += 1;
                 else p.failed += 1;
             }
@@ -276,14 +274,15 @@ export class CacheWarmer {
 
     status() {
         const p = this.pass;
-        // A wait's cause changes between rounds (a chart closed, the quiet period ran out).
-        const budgetWait = this.reason.startsWith('leaving');
+        // A wait's cause changes between rounds (charting stopped, the quiet period ran out).
+        const budgetWait = this.reason.startsWith('holding');
         return {
             state: this.state,
             reason: this.state === 'waiting' && !budgetWait ? this.waitReason() : this.reason,
             quietForMs: this.quietFor(),
             quietNeededMs: this.quietMs,
-            reserve: this.reserve,
+            share: BACKGROUND_SHARE,
+            openCharts: this.hub.stats().topics,
             manualQueued: this.manual,
             pass: p
                 ? { kind: p.kind, slot: p.slot, total: p.steps.length, index: p.index, done: p.done, skipped: p.skipped, failed: p.failed, calls: p.calls, startedAt: p.startedAt, current: p.steps[p.index]?.target ?? null }

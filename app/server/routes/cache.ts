@@ -7,7 +7,7 @@ import type { AppContext } from '../app';
 import { activity } from '../market/background';
 import { metrics } from '../market/metrics';
 import { MAX_BARS_PER_SERIES, RETENTION_MS, type SeriesRow } from '../market/cache-store';
-import { collectTargets } from '../market/warm-targets';
+import { ACTIVE_WINDOW_MS, INTRADAY_TIMEFRAMES, TOP_SYMBOLS, WARM_TIMEFRAMES, collectTargets } from '../market/warm-targets';
 import { localDate, zonedWallTime } from '../market/timeframes';
 
 const TIMING_KINDS = new Set(['complete', 'cached', 'cold', 'memory', 'quotes-cached', 'quotes-cold']);
@@ -76,10 +76,11 @@ export function registerCacheRoutes(app: FastifyInstance, ctx: AppContext): void
         }
 
         const minutes = activity.series(24 * 60);
-        const buckets: Array<{ t: number; user: number; background: number }> = [];
+        const buckets: Array<{ t: number; user: number; upkeep: number; background: number }> = [];
         for (let i = 0; i < minutes.length; i += ACTIVITY_BUCKET_MIN) {
             const slice = minutes.slice(i, i + ACTIVITY_BUCKET_MIN);
-            buckets.push({ t: slice[0]!.t, user: slice.reduce((a, m) => a + m.user, 0), background: slice.reduce((a, m) => a + m.background, 0) });
+            const sum = (k: 'user' | 'upkeep' | 'background') => slice.reduce((a, m) => a + m[k], 0);
+            buckets.push({ t: slice[0]!.t, user: sum('user'), upkeep: sum('upkeep'), background: sum('background') });
         }
 
         const quotes = store.quoteAges();
@@ -95,6 +96,14 @@ export function registerCacheRoutes(app: FastifyInstance, ctx: AppContext): void
             bySource: [...cached.bySource.entries()].map(([source, v]) => ({ source, ...v })),
             freshness: [...cells.values()].map((c) => ({ ...c, watchers: plan.watched.get(c.symbol) ?? 0 })),
             targets: { pairs: plan.targets.length, symbols: plan.watched.size },
+            plan: {
+                activeAccounts: plan.accounts.length,
+                activeDays: ACTIVE_WINDOW_MS / DAY_MS,
+                watchlistTimeframes: WARM_TIMEFRAMES,
+                topTimeframes: INTRADAY_TIMEFRAMES,
+                topCount: TOP_SYMBOLS,
+                mine: plan.accounts.find((a) => a.userId === req.session!.user.id) ?? null,
+            },
             quotes: { count: quotes.length, newest: quotes.length ? Math.max(...quotes.map((q) => q.fetchedAt)) : null, oldest: quotes.length ? Math.min(...quotes.map((q) => q.fetchedAt)) : null },
             warmer: warmer ? { ...warmer.status(), upcoming: await warmer.upcoming(now).catch(() => []) } : null,
             runs: store.runs(15),
@@ -102,7 +111,7 @@ export function registerCacheRoutes(app: FastifyInstance, ctx: AppContext): void
             sessions: await sessionWindows(now - DAY_MS, now),
             timings: { summary: timingSummary, hours },
             events: store.events(30),
-            budgets: snap.bridges.filter((b) => b.budget).map((b) => ({ id: b.id, headroom: metrics.headroom(b.id), perMinute: b.budget!.perMinute })),
+            budgets: metrics.budgetUse(),
         };
     });
 

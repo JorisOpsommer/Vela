@@ -30,6 +30,7 @@ export class CoinbaseBridge implements Bridge {
         const native = velaTf(tf);
         const key = `${ticker}|${tf.unit}${tf.n}|${req.from ?? ''}|${req.to ?? ''}|${req.limit ?? ''}`;
         return this.cache.wrap(key, req.to != null && req.to < Date.now() - 3_600_000 ? 3_600_000 : 5_000, async () => {
+            await this.bucket.take();
             // The provider pages and paces its own HTTP calls; one logical fetch is timed here.
             if (native) return metrics.time('coinbase', `candles:${native}`, () => this.provider.getBars(ticker, native, { from: req.from, to: req.to, limit: req.limit }));
             // nD / nW: fold daily candles.

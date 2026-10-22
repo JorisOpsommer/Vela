@@ -15,10 +15,13 @@ All notable changes to Vela, newest first.
 - **The self-hosted app keeps a market-data cache.** Every chart and watchlist price the server
   fetches is saved, so opening a chart or the watchlist shows bars and prices immediately and
   only the newest stretch is fetched from the providers. Outside market hours a chart that is
-  already up to date loads its history without any provider call. While nobody is using the providers, the
-  server prefetches every account's layout charts and watchlist at the timeframes it uses:
-  after the close, before the open, a few times during the day, and every few hours for crypto.
-  It steps aside the moment someone starts charting. Unused data is dropped after five days.
+  already up to date loads its history without any provider call. While nobody is actively
+  charting (screens left open at idle don't count), the server prefetches, for every account
+  used in the last two weeks, its layout charts, its watchlist at 4h and Daily, and its ten most
+  watched symbols at 15m and 1h: after the close, before the open, a few times during the day,
+  and every few hours for crypto. It never uses more than half of any provider's request rate, so the other half is always there for users, and it gives way
+  at its very next request the moment someone starts charting. Unused data is dropped after
+  five days.
   The new **Cache** page shows what is cached, how fresh it is, how much time it saves, and what
   the prefetcher is doing; admins can trigger a prefetch, purge unused data or clear it all.
 

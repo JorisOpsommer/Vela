@@ -9,6 +9,7 @@ import type { AlpacaBridge } from './bridges/alpaca';
 import type { FinnhubBridge, Trade } from './bridges/finnhub';
 import type { CoinbaseBridge } from './bridges/coinbase';
 import { avoids } from './background';
+import { BackgroundYield } from './limits';
 
 export interface QuoteRow {
     symbol: string;
@@ -106,6 +107,8 @@ export class MarketService {
                 if (src.bridge !== 'yahoo') bars = await this.withRealtimeExtendedTail(entry, tf, req, bars);
                 return { entry, source: src.bridge, bars };
             } catch (err) {
+                // Background work giving way says nothing about the source: stop here, blame no one.
+                if (err instanceof BackgroundYield) throw err;
                 lastErr = err;
                 failures += 1;
                 const wait = rateLimitWait(err);
@@ -155,7 +158,8 @@ export class MarketService {
                         }
                         else misses.push(it);
                     }
-                } catch {
+                } catch (err) {
+                    if (err instanceof BackgroundYield) throw err;
                     this.record(id, false);
                     misses.push(...items);
                 }
@@ -204,8 +208,8 @@ export class MarketService {
             const tail = await yahoo.getBars(src.ticker, tf, { from: now - tailMs, session: 'extended' }, entry);
             this.record('yahoo', true);
             return clip(spliceTail(bars, tail), { from: req.from, to: req.to, limit: req.limit });
-        } catch {
-            this.record('yahoo', false);
+        } catch (err) {
+            if (!(err instanceof BackgroundYield)) this.record('yahoo', false);
             return bars;
         }
     }

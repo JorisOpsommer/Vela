@@ -6,6 +6,7 @@ import { ProviderLimitError, UpstreamError, type CatalogEntry } from '../market/
 import { sameOrigin } from '../security';
 import { ENERGY_ATTRIBUTION } from '../market/bridges/energycharts';
 import { ledgerCryptoIconUrl } from '../../../src/data/symbol-base';
+import { runAsUpkeep } from '../market/background';
 
 const MAX_SUBS_PER_SOCKET = 64;
 const LOGO_TTL_MS = 30 * 86_400_000;
@@ -84,8 +85,11 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
             const peek = await cached.peek(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
             return peek ?? { bars: [], asOf: null, complete: false };
         }
+        // Opening a chart or scrolling back (no `from`) is someone charting; a `from`-only
+        // request refreshes the newest bars of a chart already on screen — upkeep.
+        const load = () => cached.bars(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
         try {
-            const { bars, source, cache } = await cached.bars(String(q.symbol ?? ''), String(q.tf ?? 'D'), req2);
+            const { bars, source, cache } = req2.from != null && req2.to == null ? await runAsUpkeep(load) : await load();
             return { bars, source, cache };
         } catch (err) {
             req.log.warn({ symbol: q.symbol, tf: q.tf, err: (err as Error).message }, 'bars failed');
@@ -103,7 +107,8 @@ export function registerMarketRoutes(app: FastifyInstance, ctx: AppContext): voi
         const symbols = [...new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))].slice(0, 120);
         if (symbols.length === 0) return reply.code(400).send({ error: 'symbols required' });
         if ((req.query as { cache?: string }).cache === 'only') return { quotes: cached.peekQuotes(symbols) };
-        return { quotes: await cached.quotes(symbols) };
+        // Watchlist prices refresh on a timer whether anyone looks or not: upkeep.
+        return { quotes: await runAsUpkeep(() => cached.quotes(symbols)) };
     });
 
     app.get('/api/calendar', async (req, reply) => {

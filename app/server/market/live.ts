@@ -4,6 +4,7 @@
 import type { CatalogEntry, OHLCV } from './types';
 import type { MarketService } from './service';
 import { bucketStart, localTimeOfDay, nominalMs, parseTimeframe, type Timeframe } from './timeframes';
+import { runAsUpkeep } from './background';
 
 type Listener = (bar: OHLCV) => void;
 
@@ -81,7 +82,8 @@ export class LiveHub {
         const poll = async () => {
             if (stopped) return;
             try {
-                const { bars } = await this.market.getBars(topic.entry.symbol, tfRaw, { limit: 3, session: topic.session === 'extended' ? 'extended' : 'regular' });
+                // An open chart keeping itself current is upkeep, not someone charting.
+                const { bars } = await runAsUpkeep(() => this.market.getBars(topic.entry.symbol, tfRaw, { limit: 3, session: topic.session === 'extended' ? 'extended' : 'regular' }));
                 if (stopped) return;
                 for (const b of bars) {
                     if (!topic.last || b.time >= topic.last.time) this.emit(topic, b);

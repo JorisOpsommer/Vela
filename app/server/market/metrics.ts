@@ -1,7 +1,7 @@
 // Operational metrics for the provider-stats page: every upstream call (latency,
 // outcome, rate-limit headers), cache effectiveness, and request-budget pressure.
 // In memory, since process start — a restart begins a fresh window.
-import { activity, isBackground } from './background';
+import { activity, caller } from './background';
 
 export type MetricBridge = 'alpaca' | 'finnhub' | 'yahoo' | 'energycharts' | 'coinbase';
 
@@ -48,7 +48,6 @@ interface CacheCounters {
 
 interface BudgetProbe {
     perMinute: number;
-    readonly capacity: number;
     available(): number;
     waiting(): number;
     waits: number;
@@ -84,7 +83,7 @@ export class Metrics {
     }
 
     record(r: CallRecord): void {
-        activity.record(isBackground());
+        activity.record(caller());
         const t = this.now();
         const s = this.state(r.bridge);
         const ok = r.status >= 200 && r.status < 400;
@@ -138,10 +137,21 @@ export class Metrics {
         this.budgets.set(label, probe);
     }
 
-    /** Share of a bridge's request bucket that is free right now (1 when it has none). */
-    headroom(label: string): number {
-        const b = this.budgets.get(label);
-        return b ? b.available() / Math.max(1, b.capacity) : 1;
+    /**
+     * Every bridge's request budget right now: its rate and the calls of the trailing minute —
+     * the same count the provider-stats page shows, retries and unbudgeted calls included.
+     */
+    budgetUse(): Array<{ id: string; perMinute: number; usedLastMinute: number }> {
+        const t = this.now();
+        return [...this.budgets.entries()].map(([id, b]) => ({ id, perMinute: b.perMinute, usedLastMinute: this.callsLastMinute(id as MetricBridge, t) }));
+    }
+
+    /** Calls in the trailing 60 s, prorated across the current and previous minute. */
+    private callsLastMinute(b: MetricBridge, t: number): number {
+        const minute = Math.floor(t / 60_000);
+        const minutes = this.bridges.get(b)?.minutes ?? [];
+        const calls = (m: number) => minutes.find((x) => x.minute === m)?.calls ?? 0;
+        return Math.round(calls(minute) + calls(minute - 1) * (1 - (t % 60_000) / 60_000));
     }
 
     /** Wraps a logical upstream call that does not go through `fetchJson`. */
@@ -172,10 +182,6 @@ export class Metrics {
                 series.push({ t: minute * 60_000, calls: m?.calls ?? 0, errors: m?.errors ?? 0, throttled: m?.throttled ?? 0, p50: percentile(lat, 50), p95: percentile(lat, 95) });
             }
             const last = (mins: number) => series.slice(-mins).reduce((a, x) => a + x.calls, 0);
-            // Calls in the trailing 60 s, prorated across the current and previous minute.
-            const frac = (t % 60_000) / 60_000;
-            const cur = series[series.length - 1]!.calls;
-            const prev = series[series.length - 2]?.calls ?? 0;
             const cache = this.cache(id);
             const budget = this.budgets.get(id);
             return {
@@ -183,7 +189,7 @@ export class Metrics {
                 total: s.total,
                 errors: s.errors,
                 throttled: s.throttled,
-                callsLastMinute: Math.round(cur + prev * (1 - frac)),
+                callsLastMinute: this.callsLastMinute(id, t),
                 calls5m: last(5),
                 calls60m: last(60),
                 latency: { p50: percentile(recentSorted, 50), p95: percentile(recentSorted, 95), max: recentSorted[recentSorted.length - 1] ?? null, samples: recentSorted.length },

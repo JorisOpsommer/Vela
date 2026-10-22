@@ -15,7 +15,7 @@
             </section>
             <div class="grid kpis" id="kpis"></div>
 
-            <div class="section-title">Warmer <small>prefetches every account's charts and watchlist while the providers are quiet</small></div>
+            <div class="section-title">Warmer <small>prefetches the charts of every account used in the last two weeks while nobody is charting, using at most half of each provider</small></div>
             <div class="grid two">
                 <div class="card" id="warmer"></div>
                 <div class="card"><h3>Upcoming passes<span class="sub">US session times, shown in your time zone</span></h3><div id="upcoming"></div></div>
@@ -24,6 +24,9 @@
                 <h3>Provider calls, last 24 hours<span class="sub">users and warmer per 10 minutes · bands mark US pre/post-market and regular hours</span></h3>
                 <div id="chart-activity"></div>
             </div>
+
+            <div class="section-title">Your charts <small>what the warmer keeps ready for your account</small></div>
+            <div class="card"><div id="mine"></div></div>
 
             <div class="section-title">Freshness <small>every watched chart, per timeframe</small></div>
             <div class="card"><div id="freshness"></div></div>

@@ -3,12 +3,39 @@
 // backoff. Many browsers looking at the same symbol cost the upstream one request.
 import { UpstreamError } from './types';
 import { metrics, type MetricBridge } from './metrics';
+import { isBackground } from './background';
+
+/** The most of any provider background work may use: of its bucket, and of its per-minute rate. */
+export const BACKGROUND_SHARE = 0.5;
+const BACKGROUND_POLL_MS = 250;
+const BACKGROUND_MAX_WAIT_MS = 20_000;
+
+/**
+ * Background work gave way before a request: a user started charting (`user`), or the
+ * provider has no room under the background share (`budget`). Never a provider failure.
+ */
+export class BackgroundYield extends UpstreamError {
+    constructor(readonly reason: 'user' | 'budget') {
+        super(reason === 'user' ? 'background work paused for a user' : 'background work held under its share of the provider', 503);
+    }
+}
+
+let backgroundAllowed: () => boolean = () => true;
+
+/** Whether background work may still reach the providers — the warmer's quiet gate. */
+export function setBackgroundGate(gate: (() => boolean) | null): void {
+    backgroundAllowed = gate ?? (() => true);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class TokenBucket {
     private tokens: number;
     private last: number;
     private readonly queue: Array<() => void> = [];
     private timer: ReturnType<typeof setTimeout> | null = null;
+    /** When each request of the trailing minute was granted. */
+    private readonly granted: number[] = [];
     /** Takes that had to queue, and takes refused because the queue was too long. */
     waits = 0;
     rejected = 0;
@@ -24,11 +51,6 @@ export class TokenBucket {
         return this.queue.length;
     }
 
-    /** The bucket size: what a quiet minute refills to. */
-    get capacity(): number {
-        return this.burst;
-    }
-
     private refill(): void {
         const t = Date.now();
         this.tokens = Math.min(this.burst, this.tokens + ((t - this.last) / 60_000) * this.perMinute);
@@ -41,11 +63,30 @@ export class TokenBucket {
         return this.tokens;
     }
 
-    /** Resolve when a token is granted. Rejects when the wait would exceed `maxWaitMs`. */
+    /** Requests granted in the trailing 60 s, to anyone. */
+    usedLastMinute(): number {
+        const cutoff = Date.now() - 60_000;
+        while (this.granted.length > 0 && this.granted[0]! <= cutoff) this.granted.shift();
+        return this.granted.length;
+    }
+
+    private grant(): void {
+        this.tokens -= 1;
+        this.granted.push(Date.now());
+        if (this.granted.length > this.perMinute * 4) this.granted.splice(0, this.granted.length - this.perMinute * 4);
+    }
+
+    /**
+     * Resolve when a token is granted. Rejects when the wait would exceed `maxWaitMs`.
+     * Background work is held to {@link BACKGROUND_SHARE}: it waits until the bucket would
+     * stay at least that full and the last minute used at most that share of the rate, so
+     * users always find the other half — and it gives up the moment its gate closes.
+     */
     take(maxWaitMs = 15_000): Promise<void> {
+        if (isBackground()) return this.takeBackground();
         this.refill();
         if (this.queue.length === 0 && this.tokens >= 1) {
-            this.tokens -= 1;
+            this.grant();
             return Promise.resolve();
         }
         const waitMs = ((this.queue.length + 1 - this.tokens) / this.perMinute) * 60_000;
@@ -60,11 +101,26 @@ export class TokenBucket {
         });
     }
 
+    private async takeBackground(): Promise<void> {
+        const started = Date.now();
+        for (;;) {
+            if (!backgroundAllowed()) throw new BackgroundYield('user');
+            this.refill();
+            const room = this.queue.length === 0 && this.tokens - 1 >= this.burst * BACKGROUND_SHARE && this.usedLastMinute() + 1 <= this.perMinute * BACKGROUND_SHARE;
+            if (room) {
+                this.grant();
+                return;
+            }
+            if (Date.now() - started > BACKGROUND_MAX_WAIT_MS) throw new BackgroundYield('budget');
+            await sleep(BACKGROUND_POLL_MS);
+        }
+    }
+
     private pump(): void {
         if (this.timer) return;
         this.refill();
         while (this.queue.length > 0 && this.tokens >= 1) {
-            this.tokens -= 1;
+            this.grant();
             this.queue.shift()!();
         }
         if (this.queue.length > 0) {
@@ -126,7 +182,9 @@ export class TtlCache<T> {
         const pending = this.inflight.get(key);
         if (pending) {
             if (this.counters) this.counters.coalesced += 1;
-            return pending;
+            // A user joining background work must not inherit its giving way.
+            if (isBackground()) return pending;
+            return pending.catch((err: unknown) => (err instanceof BackgroundYield ? this.wrap(key, ttl, load) : Promise.reject(err)));
         }
         if (this.counters) this.counters.misses += 1;
         const p = load()
@@ -156,8 +214,6 @@ function headerNum(res: Response, name: string): number | undefined {
     const n = Number(v);
     return Number.isFinite(n) ? n : undefined;
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function fetchJson<T>(url: string, opts: FetchOptions = {}): Promise<T> {
     const retries = opts.retries ?? 2;

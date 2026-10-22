@@ -17,23 +17,35 @@ interface Overview {
     bySource: Array<{ source: string; avoided: number; tailOnly: number; full: number; barsFromCache: number; barsFromUpstream: number }>;
     freshness: Array<{ symbol: string; tf: string; session: string; status: Status; fetchedAt: number | null; bars: number; source: string | null; target: boolean; watchers: number }>;
     targets: { pairs: number; symbols: number };
+    plan: {
+        activeAccounts: number;
+        activeDays: number;
+        watchlistTimeframes: string[];
+        topTimeframes: string[];
+        topCount: number;
+        /** The viewer's own plan; null when the account has not been used within `activeDays`. */
+        mine: { watchlist: string[]; top: Array<{ symbol: string; minutes: number; opens: number }> } | null;
+    };
     quotes: { count: number; newest: number | null; oldest: number | null };
     warmer: {
         state: 'idle' | 'waiting' | 'running';
         reason: string;
         quietForMs: number;
         quietNeededMs: number;
-        reserve: number;
+        /** The most of any provider the warmer may use. */
+        share: number;
+        /** Live chart streams open right now (idle screens do not stop the warmer). */
+        openCharts: number;
         manualQueued: boolean;
         pass: { kind: string; total: number; index: number; done: number; skipped: number; failed: number; calls: number; startedAt: number; current: { symbol: string; tf: string } | null } | null;
         upcoming: Array<{ kind: string; at: number }>;
     } | null;
     runs: Array<{ id: number; kind: string; startedAt: number; endedAt: number | null; total: number; done: number; skipped: number; failed: number; calls: number; status: string }>;
-    activity: Array<{ t: number; user: number; background: number }>;
+    activity: Array<{ t: number; user: number; upkeep: number; background: number }>;
     sessions: { regular: Array<[number, number]>; extended: Array<[number, number]> };
     timings: { summary: Array<{ kind: string; count: number; p50: number | null; p95: number | null }>; hours: Array<{ t: number; cached: number | null; cold: number | null }> };
     events: Array<{ at: number; kind: string; detail: string }>;
-    budgets: Array<{ id: string; headroom: number; perMinute: number }>;
+    budgets: Array<{ id: string; perMinute: number; usedLastMinute: number }>;
 }
 
 const REFRESH_MS = 10_000;
@@ -176,10 +188,11 @@ function renderWarmer(o: Overview): void {
         head,
         facts([
             ['Now', w.reason],
-            ['Budget left free', `${fmt(w.reserve * 100)}% of each provider's`],
+            ['Open charts', w.openCharts ? `${fmt(w.openCharts)} — idle screens don't stop warming` : 'none'],
+            ['Provider share', `at most ${fmt(w.share * 100)}% of each, the rest stays free for users`],
             ...(w.manualQueued ? ([['Queued', 'a requested full pass']] as Array<[string, string]>) : []),
         ]),
-        track(quietLabel, quiet, `Warming starts after ${Math.round(w.quietNeededMs / 60_000)} minutes without a user reaching a provider and with no chart open.`, 'var(--series-3)'),
+        track(quietLabel, quiet, `Warming starts after ${Math.round(w.quietNeededMs / 60_000)} minutes without anyone charting. Screens left open at idle don't count.`, 'var(--series-3)'),
     ];
     parts[1]!.style.marginTop = '12px';
     if (w.pass) {
@@ -192,15 +205,23 @@ function renderWarmer(o: Overview): void {
             ),
         );
     }
-    // Per-provider headroom: what the warmer looks at before every request.
-    const budget = h('div');
-    budget.style.marginTop = '12px';
-    barList(
-        budget,
-        o.budgets.map((b) => ({ label: PROVIDERS[b.id]?.name ?? b.id, value: Math.round(b.headroom * 100), display: `${fmt(b.headroom * 100)}% free`, title: `${b.perMinute} requests per minute` })),
-        { fill: 'var(--series-3)' },
-    );
-    parts.push(h('div', 'cache-prog-sub', 'Request budget free right now'), budget);
+    // Per-provider use over the last minute, against the line the warmer never crosses.
+    const shares = h('div', 'cache-shares');
+    for (const b of o.budgets) {
+        const use = b.perMinute ? b.usedLastMinute / b.perMinute : 0;
+        const row = h('div', 'row');
+        const t = h('div', 'track');
+        const f = h('div', `fill${use > w.share ? ' over' : ''}`);
+        f.style.width = `${Math.round(Math.min(1, use) * 100)}%`;
+        const line = h('i');
+        line.style.left = `${w.share * 100}%`;
+        line.title = `The warmer stops at ${fmt(w.share * 100)}%`;
+        t.append(f, line);
+        row.append(h('span', 'name', PROVIDERS[b.id]?.name ?? b.id), t, h('span', 'num', `${fmt(b.usedLastMinute)} / ${fmt(b.perMinute)}`));
+        row.title = `${fmt(b.usedLastMinute)} requests in the last minute of ${fmt(b.perMinute)} allowed · ${fmt(Math.max(0, 1 - use) * 100)}% free`;
+        shares.append(row);
+    }
+    parts.push(h('div', 'cache-prog-sub', `Provider use, last minute — the line marks the warmer's ${fmt(w.share * 100)}% limit`), shares);
     box.replaceChildren(...parts);
 }
 
@@ -248,12 +269,69 @@ function renderActivity(o: Overview): void {
             host,
             o.activity.map((a) => a.t),
             [
-                { label: 'Users', color: SERIES[0]!, values: o.activity.map((a) => a.user) },
+                { label: 'Someone charting', color: SERIES[0]!, values: o.activity.map((a) => a.user) },
+                { label: 'Open screens', color: SERIES[3]!, values: o.activity.map((a) => a.upkeep) },
                 { label: 'Warmer', color: SERIES[2]!, values: o.activity.map((a) => a.background) },
             ],
             { mode: 'bars', height: 200, bands },
         );
     });
+}
+
+function renderMine(o: Overview): void {
+    const box = document.getElementById('mine')!;
+    if (box.matches(':hover')) return;
+    const p = o.plan;
+    const tfs = (list: string[]) => list.map(tfLabel).join(' and ');
+    const intro = h(
+        'div',
+        'cache-prog-sub',
+        `Every account used in the last ${fmt(p.activeDays)} days gets its whole watchlist at ${tfs(p.watchlistTimeframes)}, and its ${fmt(p.topCount)} most active symbols — most time on screen, then most opens — at ${tfs(p.topTimeframes)}. ${fmt(p.activeAccounts)} account${p.activeAccounts === 1 ? '' : 's'} qualify right now.`,
+    );
+    const mine = p.mine;
+    if (!mine || (mine.watchlist.length === 0 && mine.top.length === 0)) {
+        box.replaceChildren(intro, h('div', 'empty', mine ? 'Your watchlist is empty and no chart activity is recorded yet.' : `Your account has not been used in the last ${fmt(p.activeDays)} days.`));
+        return;
+    }
+    const rank: Record<Status, number> = { complete: 3, fresh: 2, stale: 1, missing: 0 };
+    const best = new Map<string, { status: Status; tips: string[] }>();
+    for (const f of o.freshness) {
+        const key = `${f.symbol}|${f.tf}`;
+        const c = best.get(key) ?? { status: 'missing' as Status, tips: [] };
+        if (rank[f.status] > rank[c.status]) c.status = f.status;
+        c.tips.push(f.fetchedAt ? `${tfLabel(f.tf)}: ${STATUS_META[f.status].label.toLowerCase()} · ${fmt(f.bars)} bars · fetched ${ago(f.fetchedAt, o.now)}` : `${tfLabel(f.tf)}: not cached yet`);
+        best.set(key, c);
+    }
+    const top = new Map(mine.top.map((t) => [t.symbol, t]));
+    const watch = new Set(mine.watchlist);
+    const symbols = [...mine.top.map((t) => t.symbol), ...mine.watchlist.filter((s) => !top.has(s))];
+    const cols = [...p.topTimeframes, ...p.watchlistTimeframes].sort((a, b) => tfMinutes(a) - tfMinutes(b));
+
+    const grid = h('div', 'cache-fresh');
+    grid.style.gridTemplateColumns = `minmax(80px, max-content) repeat(${cols.length}, 44px) max-content`;
+    grid.append(h('span', 'hd', 'Symbol'));
+    for (const tf of cols) grid.append(h('span', 'hd c', tfLabel(tf)));
+    grid.append(h('span', 'hd c', 'Why'));
+    for (const sym of symbols) {
+        grid.append(h('span', 'sym', sym));
+        const t = top.get(sym);
+        for (const tf of cols) {
+            const planned = (t != null && p.topTimeframes.includes(tf)) || (watch.has(sym) && p.watchlistTimeframes.includes(tf));
+            const c = best.get(`${sym}|${tf}`);
+            const cell = h('span', `cell${planned ? '' : ' none'}`);
+            if (planned) {
+                const status = c?.status ?? 'missing';
+                cell.style.background = STATUS_META[status].color;
+                cell.title = `${sym}\n${c ? c.tips.join('\n') : `${tfLabel(tf)}: not cached yet`}`;
+            }
+            grid.append(cell);
+        }
+        const why: string[] = [];
+        if (t) why.push(`top ${fmt(mine.top.indexOf(t) + 1)} · ${fmt(Math.round(t.minutes))} min on screen · ${fmt(t.opens)} open${t.opens === 1 ? '' : 's'}`);
+        if (watch.has(sym)) why.push('watchlist');
+        grid.append(h('span', 'num', why.join(' · ')));
+    }
+    box.replaceChildren(intro, grid);
 }
 
 function renderFreshness(o: Overview): void {
@@ -449,7 +527,7 @@ function renderAdmin(o: Overview): void {
     const row = h('div', 'cache-head');
     row.style.justifyContent = 'flex-start';
     row.append(
-        action('Warm everything when quiet', '', '/api/admin/cache/warm', null, 'A full pass is queued; it starts once the providers are quiet.'),
+        action('Warm everything when quiet', '', '/api/admin/cache/warm', null, 'A full pass is queued; it starts once nobody is charting.'),
         action('Purge unused now', 'ghost', '/api/admin/cache/purge', null, 'Unused series and prices were purged.'),
         action('Clear the whole cache', 'danger', '/api/admin/cache/clear', 'Clear every cached bar and price? Charts load from the providers until the warmer refills the cache.', 'The cache was cleared.'),
     );
@@ -463,6 +541,7 @@ async function refresh(): Promise<void> {
     renderWarmer(o);
     renderUpcoming(o);
     renderActivity(o);
+    renderMine(o);
     renderFreshness(o);
     renderSpeed(o);
     renderSavings(o);

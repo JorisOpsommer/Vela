@@ -832,3 +832,47 @@ button.btn:disabled {
 .cache-actions .cache-head {
     gap: 10px;
 }
+.cache-shares {
+    display: grid;
+    gap: 7px;
+    margin-top: 8px;
+}
+.cache-shares .row {
+    display: grid;
+    grid-template-columns: 110px 1fr 70px;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+}
+.cache-shares .name {
+    color: var(--text-secondary);
+}
+.cache-shares .num {
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.cache-shares .track {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+}
+.cache-shares .fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--series-3);
+    transition: width 0.6s ease;
+}
+.cache-shares .fill.over {
+    background: var(--warning);
+}
+.cache-shares i {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--text-secondary);
+    border-radius: 1px;
+}
