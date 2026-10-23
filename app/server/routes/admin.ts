@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { AppContext } from '../app';
 import { AuthError, type Role } from '../auth/service';
+import { ACTIVITY_WINDOWS, activityByUser, emptyActivity } from '../analytics/insights';
 
 function fail(reply: FastifyReply, err: unknown) {
     if (err instanceof AuthError) return reply.code(err.status).send({ error: err.message });
@@ -13,9 +14,17 @@ function idParam(raw: unknown): number | null {
 }
 
 export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void {
-    const { auth } = ctx;
+    const { auth, db } = ctx;
 
     app.get('/api/admin/users', async () => ({ users: auth.listUsers() }));
+
+    app.get('/api/admin/activity', async () => {
+        const activity = activityByUser(db);
+        return {
+            windows: ACTIVITY_WINDOWS.map(({ key, label }) => ({ key, label })),
+            users: auth.listUsers().map((u) => ({ id: u.id, username: u.username, disabled: u.disabled, ...(activity.get(u.id) ?? emptyActivity()) })),
+        };
+    });
 
     app.post('/api/admin/users', async (req, reply) => {
         const b = (req.body ?? {}) as { username?: unknown; password?: unknown; role?: unknown };

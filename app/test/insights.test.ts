@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { Metrics } from '../server/market/metrics';
 import { RelatedMap } from '../server/analytics/related';
-import { buildInsights, indicatorLabel, recordEvents } from '../server/analytics/insights';
+import { activityByUser, buildInsights, indicatorLabel, recordEvents } from '../server/analytics/insights';
 import { openDbAt } from '../server/db';
 import { AuthService } from '../server/auth/service';
 import { SecretBox } from '../server/auth/secret-box';
@@ -211,5 +211,34 @@ describe('analytics events and insights', () => {
         expect(indicatorLabel('moving-average')).toBe('Moving Average');
         expect(indicatorLabel('bollinger-bands')).toBe('Bollinger Bands');
         expect(indicatorLabel('macd')).toBe('MACD');
+    });
+});
+
+describe('account activity', () => {
+    it('counts opens and screen minutes per window, and each account’s last activity', async () => {
+        const db = openDbAt(':memory:');
+        const auth = new AuthService(db, new SecretBox('k'.repeat(40)), 86_400_000);
+        const alice = await auth.createUser('alice', 'correct horse battery staple', 'user');
+        const bob = await auth.createUser('bob', 'correct horse battery staple', 'user');
+        const now = Date.UTC(2026, 9, 20, 15, 0, 0);
+        recordEvents(
+            db,
+            alice.id,
+            [
+                { k: 'open', v: 'NVDA', x: 'D', t: now - 5 * 60_000 },
+                { k: 'open', v: 'AMD', x: 'D', t: now - 2 * 3_600_000 },
+                { k: 'open', v: 'AAPL', x: 'D', t: now - 30 * 3_600_000 },
+                { k: 'watch', v: 'NVDA', x: 'D', n: 4, t: now - 10 * 60_000 },
+                { k: 'watch', v: 'NVDA', x: 'D', n: 2, t: now - 3 * 86_400_000 },
+            ],
+            now,
+        );
+        const activity = activityByUser(db, now);
+        expect(activity.get(alice.id)).toMatchObject({
+            opens: { m15: 1, h1: 1, h12: 2, h24: 2, d7: 3 },
+            minutes: { m15: 4, h1: 4, h12: 4, h24: 4, d7: 6 },
+            lastActiveAt: now - 5 * 60_000,
+        });
+        expect(activity.has(bob.id)).toBe(false);
     });
 });

@@ -53,6 +53,60 @@ export function clearEvents(db: Db, userId: number): void {
     db.prepare('DELETE FROM analytics_events WHERE user_id = ?').run(userId);
 }
 
+export const ACTIVITY_WINDOWS = [
+    { key: 'm15', label: '15 min', ms: 15 * 60_000 },
+    { key: 'h1', label: '1 h', ms: 60 * 60_000 },
+    { key: 'h12', label: '12 h', ms: 12 * 60 * 60_000 },
+    { key: 'h24', label: '24 h', ms: DAY_MS },
+    { key: 'd7', label: '7 d', ms: 7 * DAY_MS },
+] as const;
+
+export type ActivityWindow = (typeof ACTIVITY_WINDOWS)[number]['key'];
+
+export interface AccountActivity {
+    /** Chart opens (symbol changes and first loads) per window. */
+    opens: Record<ActivityWindow, number>;
+    /** Minutes the chart was visible on screen per window. */
+    minutes: Record<ActivityWindow, number>;
+    lastActiveAt: number | null;
+}
+
+export function emptyActivity(): AccountActivity {
+    return {
+        opens: Object.fromEntries(ACTIVITY_WINDOWS.map((w) => [w.key, 0])) as Record<ActivityWindow, number>,
+        minutes: Object.fromEntries(ACTIVITY_WINDOWS.map((w) => [w.key, 0])) as Record<ActivityWindow, number>,
+        lastActiveAt: null,
+    };
+}
+
+/** Activity per account, aggregated in two queries over the events table. */
+export function activityByUser(db: Db, now = Date.now()): Map<number, AccountActivity> {
+    const params: number[] = [];
+    const columns = ACTIVITY_WINDOWS.map((w) => {
+        params.push(now - w.ms, now - w.ms);
+        return `SUM(CASE WHEN kind = 'open' AND ts > ? THEN 1 ELSE 0 END) AS opens_${w.key}, SUM(CASE WHEN kind = 'watch' AND ts > ? THEN n ELSE 0 END) AS minutes_${w.key}`;
+    });
+    const rows = db
+        .prepare(`SELECT user_id, ${columns.join(', ')} FROM analytics_events WHERE ts > ? GROUP BY user_id`)
+        .all(...params, now - 7 * DAY_MS) as Array<{ user_id: number } & Record<string, number>>;
+    const last = db.prepare('SELECT user_id, MAX(ts) AS last_at FROM analytics_events GROUP BY user_id').all() as Array<{ user_id: number; last_at: number }>;
+    const out = new Map<number, AccountActivity>();
+    for (const r of rows) {
+        const a = emptyActivity();
+        for (const w of ACTIVITY_WINDOWS) {
+            a.opens[w.key] = r[`opens_${w.key}`] ?? 0;
+            a.minutes[w.key] = Math.round(r[`minutes_${w.key}`] ?? 0);
+        }
+        out.set(r.user_id, a);
+    }
+    for (const { user_id, last_at } of last) {
+        const a = out.get(user_id) ?? emptyActivity();
+        a.lastActiveAt = last_at;
+        out.set(user_id, a);
+    }
+    return out;
+}
+
 function bare(s: string): string {
     const i = s.lastIndexOf(':');
     return (i >= 0 ? s.slice(i + 1) : s).trim().toUpperCase();

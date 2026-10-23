@@ -24,6 +24,10 @@ All notable changes to Vela, newest first.
   five days.
   The new **Cache** page shows what is cached, how fresh it is, how much time it saves, and what
   the prefetcher is doing; admins can trigger a prefetch, purge unused data or clear it all.
+- **See how often each account is used.** The account page shows admins an **Activity** table
+  for every account: how many charts it opened in the last 15 minutes, hour, 12 hours, day and
+  week, how long its chart was on screen over the past week, and when it was last active. The
+  counts come from the activity each signed-in browser already reports.
 
 - **Indicator settings stick to your account.** When you change an indicator's settings, such as
   its colors, length or thresholds, the next indicator of that type you add starts with those

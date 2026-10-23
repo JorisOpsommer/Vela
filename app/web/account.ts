@@ -23,6 +23,29 @@ function errText(err: unknown): string {
     return err instanceof ApiError ? err.message : 'Something went wrong.';
 }
 
+function cell(text: string): HTMLTableCellElement {
+    const td = document.createElement('td');
+    td.textContent = text;
+    return td;
+}
+
+interface ActivityRow {
+    id: number;
+    username: string;
+    disabled: boolean;
+    opens: Record<string, number>;
+    minutes: Record<string, number>;
+    lastActiveAt: number | null;
+}
+
+/** Keys of the server's activity windows, shortest first (see ACTIVITY_WINDOWS). */
+const OPEN_WINDOWS = ['m15', 'h1', 'h12', 'h24', 'd7'];
+
+function formatMinutes(total: number): string {
+    if (total < 60) return `${total} min`;
+    return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;
+}
+
 async function main(): Promise<void> {
     const me = await loadMe();
     startMarketBell();
@@ -64,6 +87,16 @@ async function main(): Promise<void> {
                 setMsg($('admin'), errText(err), false);
             }
         };
+        $('activity-card').hidden = false;
+        $('activity-refresh').onclick = async () => {
+            $('activity-msg').textContent = '';
+            try {
+                await renderActivity();
+            } catch (err) {
+                setMsg($('activity-card'), errText(err), false);
+            }
+        };
+        await renderActivity();
     }
 }
 
@@ -115,11 +148,6 @@ async function renderUsers(me: Me): Promise<void> {
     tbody.replaceChildren(
         ...users.map((u) => {
             const tr = document.createElement('tr');
-            const cell = (text: string) => {
-                const td = document.createElement('td');
-                td.textContent = text;
-                return td;
-            };
             tr.append(cell(u.username), cell(u.role), cell(u.totpEnabled ? 'on' : '—'), cell(u.disabled ? 'disabled' : u.mustChangePassword ? 'must change password' : 'active'));
             const actions = document.createElement('td');
             const btn = (label: string, fn: () => Promise<unknown>, danger = false) => {
@@ -159,6 +187,22 @@ async function renderUsers(me: Me): Promise<void> {
                 );
             }
             tr.append(actions);
+            return tr;
+        }),
+    );
+}
+
+async function renderActivity(): Promise<void> {
+    const { users } = await api<{ users: ActivityRow[] }>('/api/admin/activity');
+    $('activity').replaceChildren(
+        ...users.map((u) => {
+            const tr = document.createElement('tr');
+            tr.append(
+                cell(u.disabled ? `${u.username} (disabled)` : u.username),
+                ...OPEN_WINDOWS.map((w) => cell(String(u.opens[w] ?? 0))),
+                cell(formatMinutes(u.minutes.d7 ?? 0)),
+                cell(u.lastActiveAt == null ? 'never' : new Date(u.lastActiveAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
+            );
             return tr;
         }),
     );

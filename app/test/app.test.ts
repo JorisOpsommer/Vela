@@ -225,6 +225,39 @@ describe('signed-in API', () => {
         expect((await app.inject({ url: '/api/insights/providers' })).statusCode).toBe(401);
     });
 
+    it('shows admins each account’s chart opens and screen time', async () => {
+        const a = await login('alice');
+        expect((await app.inject({ url: '/api/admin/activity', headers: { cookie: a.cookie } })).statusCode).toBe(403);
+        const r = await login('root');
+        const read = async () => {
+            const res = await app.inject({ url: '/api/admin/activity', headers: { cookie: r.cookie } });
+            expect(res.statusCode).toBe(200);
+            type Window = 'm15' | 'h1' | 'h12' | 'h24' | 'd7';
+            return res.json() as { windows: Array<{ key: string }>; users: Array<{ username: string; opens: Record<Window, number>; minutes: Record<Window, number>; lastActiveAt: number | null }> };
+        };
+        const before = await read();
+        expect(before.windows.map((w) => w.key)).toEqual(['m15', 'h1', 'h12', 'h24', 'd7']);
+        expect(before.users.map((u) => u.username)).toEqual(['alice', 'root']);
+        const root = before.users.find((u) => u.username === 'root')!;
+        expect(root).toMatchObject({ opens: { m15: 0, d7: 0 }, minutes: { d7: 0 }, lastActiveAt: null });
+
+        const alice = await login('alice');
+        const post = await app.inject({
+            method: 'POST',
+            url: '/api/analytics/events',
+            headers: { cookie: alice.cookie, origin: ORIGIN, host: 'charts.test', 'x-csrf-token': alice.csrf },
+            payload: { events: [{ k: 'open', v: 'INDEX:IDX', x: 'D' }, { k: 'watch', v: 'IDX', x: 'D', n: 3 }] },
+        });
+        expect(post.json()).toEqual({ accepted: 2 });
+        const after = await read();
+        const before1 = before.users.find((u) => u.username === 'alice')!;
+        const after1 = after.users.find((u) => u.username === 'alice')!;
+        expect(after1.opens.m15).toBe(before1.opens.m15 + 1);
+        expect(after1.opens.d7).toBe(before1.opens.d7 + 1);
+        expect(after1.minutes.d7).toBe(before1.minutes.d7 + 3);
+        expect(after1.lastActiveAt).not.toBeNull();
+    });
+
     it('signing out invalidates the session', async () => {
         const a = await login('alice');
         const out = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: a.cookie, origin: ORIGIN, host: 'charts.test', 'x-csrf-token': a.csrf }, payload: {} });

@@ -72,6 +72,21 @@
                 <h3>Data sources</h3>
                 <ul id="bridges" class="bridges"></ul>
             </section>
+
+            <section class="card" id="activity-card" hidden>
+                <h2>Activity</h2>
+                <p class="hint">Chart opens per account, and the minutes its chart was on screen over the last week.</p>
+                <div class="scroll">
+                    <table class="activity">
+                        <thead>
+                            <tr><th>User</th><th>Opens 15 min</th><th>1 h</th><th>12 h</th><th>24 h</th><th>7 d</th><th>On screen 7 d</th><th>Last active</th></tr>
+                        </thead>
+                        <tbody id="activity"></tbody>
+                    </table>
+                </div>
+                <p class="msg" id="activity-msg" role="status"></p>
+                <button type="button" id="activity-refresh" class="small">Refresh</button>
+            </section>
         </main>
         <script type="module" src="./account.ts"></script>
     </body>

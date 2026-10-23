@@ -53,6 +53,8 @@ const MIGRATIONS: string[] = [
         n REAL NOT NULL DEFAULT 1
     );
     CREATE INDEX analytics_user_ts ON analytics_events(user_id, ts);`,
+    // The admin activity table and retention sweep filter on time across all users.
+    `CREATE INDEX analytics_ts ON analytics_events(ts);`,
 ];
 
 export function openDb(dataDir: string): Db {
