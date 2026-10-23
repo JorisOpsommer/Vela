@@ -8,6 +8,7 @@ import type { ServerStorage } from './lib/storage';
 import type { ServerProvider } from './lib/server-provider';
 import { track } from './lib/tracker';
 import { symbolGlyph } from './lib/symbol-glyph';
+import { moveWatchSymbol, type WatchSlot } from './lib/watchlist-move';
 
 export interface WatchGroup {
     name: string;
@@ -32,8 +33,28 @@ interface QuoteRow {
     asOf?: number;
 }
 
+/** A row being dragged by its grip in edit mode. The ghost exists once the pointer passed the threshold. */
+interface WatchDrag {
+    from: WatchSlot;
+    row: HTMLElement;
+    pointerId: number;
+    x0: number;
+    y0: number;
+    x: number;
+    y: number;
+    /** Pointer offset inside the row, plus any shift of the fixed ghost's containing block. */
+    dx: number;
+    dy: number;
+    ghost: HTMLElement | null;
+    target: { el: HTMLElement; cls: string; slot: WatchSlot } | null;
+    raf: number;
+    off: AbortController;
+}
+
 const STORAGE_KEY = 'watchlist';
 const REFRESH_MS = 10_000;
+const DRAG_THRESHOLD = 4;
+const SCROLL_EDGE = 24;
 
 /** `NASDAQ:AAPL` / `market:aapl` → `AAPL`. */
 export function bareSymbol(s: string): string {
@@ -100,6 +121,10 @@ class WatchlistView {
     private primed = false;
     private liveSeen = false;
     private readonly bornAt = performance.now();
+    private editing = false;
+    private drag: WatchDrag | null = null;
+    /** A render asked for mid-drag: it would detach the dragged row, so it waits for the drop. */
+    private renderPending = false;
 
     constructor(
         private readonly ctx: WidgetContext,
@@ -115,7 +140,18 @@ class WatchlistView {
         const newGroupBtn = el('button', 'wl-icon-btn', '＋');
         newGroupBtn.title = 'New group';
         newGroupBtn.onclick = () => this.newGroup();
-        slot.append(newGroupBtn, resetBtn);
+        const editBtn = el('button', 'wl-icon-btn', '✎');
+        editBtn.title = 'Edit watchlist';
+        editBtn.setAttribute('aria-pressed', 'false');
+        editBtn.onclick = () => {
+            this.editing = !this.editing;
+            if (!this.editing) this.endDrag(false);
+            body.classList.toggle('wl-editing', this.editing);
+            editBtn.classList.toggle('on', this.editing);
+            editBtn.title = this.editing ? 'Done editing' : 'Edit watchlist';
+            editBtn.setAttribute('aria-pressed', String(this.editing));
+        };
+        slot.append(editBtn, newGroupBtn, resetBtn);
 
         const addRow = el('div', 'wl-add');
         this.search.placeholder = 'Add symbol…';
@@ -153,6 +189,7 @@ class WatchlistView {
             },
             destroy: () => {
                 if (this.timer) clearInterval(this.timer);
+                this.endDrag(false);
             },
         };
     }
@@ -262,11 +299,17 @@ class WatchlistView {
     }
 
     private render(): void {
+        if (this.drag) {
+            this.renderPending = true;
+            return;
+        }
+        this.renderPending = false;
         this.groupSelect.replaceChildren(...this.doc.groups.map((g, i) => Object.assign(el('option', '', g.name), { value: String(i) })));
         this.groupSelect.title = 'Group to add to';
         const frag = document.createDocumentFragment();
         this.doc.groups.forEach((g, gi) => {
             const head = el('div', 'wl-group');
+            head.dataset.group = String(gi);
             const caret = el('span', 'wl-caret', g.collapsed ? '▸' : '▾');
             const name = el('span', 'wl-group-name', g.name);
             const count = el('span', 'wl-count', String(g.symbols.length));
@@ -312,7 +355,12 @@ class WatchlistView {
         const d = this.names.get(sym);
         const row = el('div', 'wl-row');
         row.dataset.symbol = sym;
+        row.dataset.group = String(gi);
+        row.dataset.index = String(si);
         row.tabIndex = 0;
+        const grip = el('span', 'wl-grip', '⠿');
+        grip.title = 'Drag to move';
+        grip.onpointerdown = (e) => this.grab(e, row, { group: gi, index: si });
         const icon = el('span', 'wl-ico');
         const iconUrl = d ? this.provider.resolveSymbolIcon(d) : undefined;
         const glyph = symbolGlyph(d ?? { ticker: sym });
@@ -342,8 +390,9 @@ class WatchlistView {
             this.save();
             this.render();
         };
-        row.append(icon, label, last, chg, rm, ext);
+        row.append(grip, icon, label, last, chg, rm, ext);
         const open = () => {
+            if (this.editing) return;
             this.ctx.setSymbol(d?.prefix ? `${d.prefix}:${sym}` : sym);
             // On a phone the panel covers the chart: get out of the way once a symbol is picked.
             if (this.ctx.host.closest('[data-layout="mobile"]')) this.ctx.togglePanel('watchlist', false);
@@ -354,6 +403,138 @@ class WatchlistView {
             if (e.key === 'Enter') open();
         };
         return row;
+    }
+
+    /** Edit mode: a press on a row's grip; the drag itself starts once the pointer has moved a little. */
+    private grab(e: PointerEvent, row: HTMLElement, from: WatchSlot): void {
+        if (!this.editing || this.drag || e.button !== 0) return;
+        e.preventDefault();
+        const off = new AbortController();
+        const [x, y] = [e.clientX, e.clientY];
+        const d: WatchDrag = { from, row, pointerId: e.pointerId, x0: x, y0: y, x, y, dx: 0, dy: 0, ghost: null, target: null, raf: 0, off };
+        this.drag = d;
+        const opts = { signal: off.signal };
+        document.addEventListener(
+            'pointermove',
+            (ev) => {
+                if (ev.pointerId !== d.pointerId) return;
+                d.x = ev.clientX;
+                d.y = ev.clientY;
+                if (!d.ghost) {
+                    if (Math.hypot(d.x - d.x0, d.y - d.y0) < DRAG_THRESHOLD) return;
+                    this.lift(d);
+                }
+                d.ghost!.style.left = `${d.x - d.dx}px`;
+                d.ghost!.style.top = `${d.y - d.dy}px`;
+                this.aim(d);
+            },
+            opts,
+        );
+        document.addEventListener(
+            'pointerup',
+            (ev) => {
+                if (ev.pointerId !== d.pointerId) return;
+                d.x = ev.clientX;
+                d.y = ev.clientY;
+                if (d.ghost) this.aim(d);
+                this.endDrag(true);
+            },
+            opts,
+        );
+        document.addEventListener('pointercancel', (ev) => ev.pointerId === d.pointerId && this.endDrag(false), opts);
+        window.addEventListener(
+            'keydown',
+            (ev) => {
+                if (ev.key !== 'Escape') return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                this.endDrag(false);
+            },
+            { signal: off.signal, capture: true },
+        );
+        window.addEventListener('blur', () => this.endDrag(false), opts);
+        this.list.addEventListener('scroll', () => d.ghost && this.aim(d), opts);
+    }
+
+    private lift(d: WatchDrag): void {
+        const r = d.row.getBoundingClientRect();
+        const ghost = d.row.cloneNode(true) as HTMLElement;
+        ghost.classList.add('wl-ghost');
+        ghost.removeAttribute('tabindex');
+        ghost.setAttribute('aria-hidden', 'true');
+        ghost.style.width = `${r.width}px`;
+        ghost.style.left = `${r.left}px`;
+        ghost.style.top = `${r.top}px`;
+        // Inside the panel body so the theme tokens apply; a transformed ancestor would shift a fixed box, so measure it.
+        this.body.append(ghost);
+        const g = ghost.getBoundingClientRect();
+        d.dx = d.x0 - r.left + (g.left - r.left);
+        d.dy = d.y0 - r.top + (g.top - r.top);
+        d.ghost = ghost;
+        d.row.classList.add('wl-dragging');
+        this.body.classList.add('wl-drag-active');
+        d.raf = requestAnimationFrame(() => this.autoScroll(d));
+    }
+
+    /** Hit-tests the pointer and moves the drop indicator; a drop that would change nothing shows none. */
+    private aim(d: WatchDrag): void {
+        const hit = document.elementFromPoint(d.x, d.y);
+        const at = hit && this.list.contains(hit) ? hit.closest<HTMLElement>('.wl-row, .wl-group') : null;
+        let next: WatchDrag['target'] = null;
+        if (at?.classList.contains('wl-row')) {
+            const r = at.getBoundingClientRect();
+            const after = d.y > r.top + r.height / 2;
+            const slot = { group: Number(at.dataset.group), index: Number(at.dataset.index) + (after ? 1 : 0) };
+            next = { el: at, cls: after ? 'wl-drop-after' : 'wl-drop-before', slot };
+        } else if (at) {
+            next = { el: at, cls: 'wl-drop-into', slot: { group: Number(at.dataset.group), index: 0 } };
+        }
+        const cur = d.target;
+        if (cur && next && cur.el === next.el && cur.cls === next.cls) return;
+        const probe = this.doc.groups.map((g) => ({ symbols: [...g.symbols] }));
+        if (next && !moveWatchSymbol(probe, d.from, next.slot)) next = null;
+        cur?.el.classList.remove(cur.cls);
+        next?.el.classList.add(next.cls);
+        d.target = next;
+    }
+
+    private autoScroll(d: WatchDrag): void {
+        if (this.drag !== d) return;
+        const r = this.list.getBoundingClientRect();
+        if (d.x >= r.left && d.x <= r.right) {
+            const v = d.y < r.top + SCROLL_EDGE ? d.y - r.top - SCROLL_EDGE : d.y > r.bottom - SCROLL_EDGE ? d.y - r.bottom + SCROLL_EDGE : 0;
+            if (v) this.list.scrollTop += Math.sign(v) * Math.ceil(Math.min(Math.abs(v), SCROLL_EDGE) / 2);
+        }
+        d.raf = requestAnimationFrame(() => this.autoScroll(d));
+    }
+
+    private endDrag(drop: boolean): void {
+        const d = this.drag;
+        if (!d) return;
+        this.drag = null;
+        d.off.abort();
+        cancelAnimationFrame(d.raf);
+        d.target?.el.classList.remove(d.target.cls);
+        d.row.classList.remove('wl-dragging');
+        this.body.classList.remove('wl-drag-active');
+        if (d.ghost) {
+            d.ghost.remove();
+            // The release would land as a click on whatever is under it (a group header toggles).
+            const swallow = (e: Event) => {
+                e.preventDefault();
+                e.stopPropagation();
+            };
+            window.addEventListener('click', swallow, true);
+            setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+        }
+        const to = drop && d.ghost ? d.target?.slot : undefined;
+        if (to && moveWatchSymbol(this.doc.groups, d.from, to)) {
+            this.doc.groups[to.group]!.collapsed = false;
+            this.save();
+            this.render();
+        } else if (this.renderPending) {
+            this.render();
+        }
     }
 
     private renderSuggest(): void {
