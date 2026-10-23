@@ -53,7 +53,7 @@ const REFRESH_MS = 10_000;
 const PASS_NAMES: Record<string, string> = {
     close: 'After the close',
     premarket: 'Before the open',
-    intraday: 'Midday top-up',
+    intraday: 'Intraday top-up',
     crypto: 'Crypto',
     manual: 'Requested',
 };

@@ -15,10 +15,21 @@
             </section>
             <div class="grid kpis" id="kpis"></div>
 
-            <div class="section-title">Warmer <small>prefetches the charts of every account used in the last two weeks while nobody is charting, using at most half of each provider</small></div>
+            <div class="section-title">Warmer <small>refills the charts of every account used in the last two weeks at fixed times, while nobody is charting, using at most half of each provider</small></div>
             <div class="grid two">
                 <div class="card" id="warmer"></div>
-                <div class="card"><h3>Upcoming passes<span class="sub">US session times, shown in your time zone</span></h3><div id="upcoming"></div></div>
+                <div class="card"><h3>Upcoming passes<span class="sub">shown in your time zone</span></h3><div id="upcoming"></div></div>
+            </div>
+            <div class="card cache-gap">
+                <h3>How often the cache fills<span class="sub">US trading days, New York time · crypto on UTC</span></h3>
+                <table class="data">
+                    <tr><th>Pass</th><th>When</th><th>What it refreshes</th></tr>
+                    <tr><td>Before the open</td><td>08:00</td><td>Watchlist prices</td></tr>
+                    <tr><td>Intraday top-up</td><td>10:30, 12:30 and 14:30</td><td>Chart history for every target</td></tr>
+                    <tr><td>After the close</td><td>30 min after the close · 16:30, or 13:30 on early-close days</td><td>Chart history and watchlist prices</td></tr>
+                    <tr><td>Crypto</td><td>Every 4 hours, at 00, 04, 08 … UTC</td><td>Crypto charts</td></tr>
+                </table>
+                <p class="cache-prog-sub">A pass starts after 3 minutes with nobody charting, and uses at most half of each provider's allowance. Charts a viewer opens fill the cache as they load, between passes.</p>
             </div>
             <div class="card cache-gap">
                 <h3>Provider calls, last 24 hours<span class="sub">users and warmer per 10 minutes · bands mark US pre/post-market and regular hours</span></h3>
