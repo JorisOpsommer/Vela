@@ -1748,6 +1748,7 @@ export class VelaWorkspace {
                 previewDropTarget: (target) => this.setDropTarget(target),
                 dropCell: (id, target) => this.swapCells(id, target),
                 onMarketChanged: (id) => this.onCellMarketChanged(id),
+                onDrawingsSwapped: (id) => this.unlinkCellDrawings(id),
                 onPriceStyleChanged: (id) => this.onCellPriceStyleChanged(id),
                 onIndicatorsChanged: (id) => this.onCellIndicatorsChanged(id),
                 onStatusPrefsChanged: (id) => this.propagateStylePrefs(id),
@@ -2189,6 +2190,18 @@ export class VelaWorkspace {
             }
         } finally {
             this.drawingSyncBusy = false;
+        }
+    }
+
+    /** A cell swapped in another symbol's drawings: its link pairs point at drawings it
+     *  no longer shows (and ids the incoming document may reuse), so they leave their
+     *  groups. The peers keep their drawings. */
+    private unlinkCellDrawings(cellId: string): void {
+        const prefix = `${cellId}\u0000`;
+        for (const [key, group] of [...this.drawingLinks]) {
+            if (!key.startsWith(prefix)) continue;
+            this.drawingLinks.delete(key);
+            group.delete(cellId);
         }
     }
 

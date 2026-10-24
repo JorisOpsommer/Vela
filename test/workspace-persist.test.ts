@@ -180,6 +180,24 @@ describe('sanitizeState (the applyState gate)', () => {
         ]);
     });
 
+    it("keeps each symbol's drawings document and drops malformed ones", () => {
+        const aapl = { version: 1, drawings: [] };
+        const doc = sanitizeState({
+            version: 1,
+            layout: '2',
+            charts: [
+                { id: 'c1', symbol: 'NYSE:GME', drawingsBySymbol: { 'NASDAQ:AAPL': aapl, 'NYSE:BAD': 'nope' } },
+                { id: 'c2', symbol: 'NYSE:GME', drawingsBySymbol: ['not', 'a', 'map'] },
+                { id: 'c3', symbol: 'NYSE:GME', drawingsBySymbol: {} },
+            ],
+        });
+        expect(doc?.charts).toEqual([
+            { id: 'c1', symbol: 'NYSE:GME', drawingsBySymbol: { 'NASDAQ:AAPL': aapl } },
+            { id: 'c2', symbol: 'NYSE:GME' },
+            { id: 'c3', symbol: 'NYSE:GME', drawingsBySymbol: {} }, // empty marks a current client
+        ]);
+    });
+
     it('filters non-string favorite entries, dropping empty sets entirely', () => {
         const doc = sanitizeState({
             version: 1,

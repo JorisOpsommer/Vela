@@ -457,3 +457,120 @@ describe('ChartCell indicator picker library', () => {
         cell.destroy();
     });
 });
+
+describe('ChartCell drawings belong to the symbol they were drawn on', () => {
+    const box = (id: string, price: number) => ({
+        id,
+        type: 'box',
+        paneId: 'price',
+        anchors: [
+            { time: 1_700_000_000_000, price },
+            { time: 1_700_000_600_000, price: price + 10 },
+        ],
+        style: { lineColor: '#7ceb33', lineWidth: 1, lineStyle: 'solid' },
+        locked: false,
+        visible: true,
+        zIndex: 1,
+    });
+    const doc = (...drawings: ReturnType<typeof box>[]) => ({ version: 1, drawings });
+    const prices = (cell: ChartCell) => cell.chart.drawings.toJSON().drawings.map((d) => d.anchors[0]!.price);
+
+    it("a symbol switch shows only the new symbol's drawings, and switching back restores the old ones", async () => {
+        const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
+        await settle();
+        cell.setSymbol('NYSE:GME');
+        await settle();
+        expect(prices(cell)).toEqual([]);
+        cell.chart.drawings.fromJSON(doc(box('dw-1', 24)));
+        cell.setSymbol('NASDAQ:AAPL');
+        await settle();
+        expect(prices(cell)).toEqual([250]);
+        cell.setSymbol('NYSE:GME');
+        await settle();
+        expect(prices(cell)).toEqual([24]);
+        cell.destroy();
+    });
+
+    it("persists every symbol's drawings, the shown symbol's under `drawings`", async () => {
+        const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
+        await settle();
+        cell.setSymbol('NYSE:GME');
+        cell.chart.drawings.fromJSON(doc(box('dw-1', 24)));
+        const saved = cell.dehydrate();
+        expect(saved.symbol).toBe('NYSE:GME');
+        expect((saved.drawings as { drawings: { anchors: { price: number }[] }[] }).drawings.map((d) => d.anchors[0]!.price)).toEqual([24]);
+        expect(Object.keys(saved.drawingsBySymbol ?? {})).toEqual(['NASDAQ:AAPL']);
+        cell.destroy();
+
+        const restored = makeCell(saved);
+        await settle();
+        expect(prices(restored)).toEqual([24]);
+        restored.setSymbol('NASDAQ:AAPL');
+        await settle();
+        expect(prices(restored)).toEqual([250]);
+        restored.destroy();
+    });
+
+    it('a document saved before drawings were per symbol keeps them on the symbol it shows', async () => {
+        const cell = makeCell({ symbol: 'NYSE:GME', drawings: doc(box('dw-2', 203)) });
+        await settle();
+        expect(prices(cell)).toEqual([203]);
+        cell.setSymbol('NASDAQ:AAPL');
+        await settle();
+        expect(prices(cell)).toEqual([]);
+        cell.destroy();
+    });
+
+    it('rehydrate files the restored drawings under the restored symbol', async () => {
+        const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
+        await settle();
+        cell.rehydrate({ symbol: 'NYSE:GME', timeframe: '60', drawings: doc(box('dw-1', 24)), drawingsBySymbol: { 'NASDAQ:AAPL': doc(box('dw-1', 260)) } });
+        await settle();
+        expect(cell.symbol).toBe('NYSE:GME');
+        expect(prices(cell)).toEqual([24]);
+        cell.setSymbol('NASDAQ:AAPL');
+        await settle();
+        expect(prices(cell)).toEqual([260]);
+        cell.destroy();
+    });
+
+    it("a document from a client without per-symbol drawings leaves the other symbols' drawings alone", async () => {
+        const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
+        await settle();
+        cell.rehydrate({ symbol: 'NYSE:GME', timeframe: '60', drawings: doc(box('dw-1', 24)) });
+        await settle();
+        expect(prices(cell)).toEqual([24]);
+        cell.setSymbol('NASDAQ:AAPL');
+        await settle();
+        expect(prices(cell)).toEqual([250]);
+        cell.destroy();
+    });
+
+    it('a bare and a prefixed pick of the same market share its drawings', async () => {
+        const provider: DataProvider = {
+            getBars: () => Promise.resolve(makeBars(60)),
+            listSymbols: () => Promise.resolve([{ ticker: 'BTCUSDT' }, { ticker: 'ETHUSDT' }]),
+        };
+        const feed = new MultiProviderFeed(new BarStore());
+        feed.registerProvider('lux', provider);
+        const cell = makeCell({ symbol: 'BTCUSDT', drawings: doc(box('dw-1', 250)) }, { feed });
+        await settle();
+        cell.setSymbol('LUX:ETHUSDT');
+        await settle();
+        expect(prices(cell)).toEqual([]);
+        cell.setSymbol('LUX:BTCUSDT');
+        await settle();
+        expect(prices(cell)).toEqual([250]);
+        cell.destroy();
+    });
+
+    it('a market switch made on the chart itself swaps the drawings too', async () => {
+        const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
+        await settle();
+        await cell.chart.setMarket({ symbol: 'NYSE:GME' });
+        await settle();
+        expect(prices(cell)).toEqual([]);
+        expect(Object.keys(cell.dehydrate().drawingsBySymbol ?? {})).toEqual(['NASDAQ:AAPL']);
+        cell.destroy();
+    });
+});

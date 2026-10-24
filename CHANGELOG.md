@@ -80,6 +80,12 @@ All notable changes to Vela, newest first.
 
 ### Changed
 
+- **Each symbol keeps its own drawings.** In a workspace, switching a chart to another symbol
+  now shows that symbol's drawings and puts the previous ones away until you switch back. Before,
+  the drawings stayed on the chart, so a box drawn on one stock appeared on the next one at
+  prices far from its candles. Drawings are shared across timeframes of the same symbol and are
+  saved with the workspace. Drawings saved before this change stay with the symbol the chart was
+  showing when it was saved.
 - **Your saved workspace stays in step across devices.** A chart open in two places no longer
   overwrites the newer one with an older copy. A tab that was behind on another device's save
   takes that save's state, and a tab that comes back into view catches up. A change made in a

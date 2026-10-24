@@ -96,8 +96,11 @@ export interface CellState {
     indicatorValues?: boolean;
     /** The renderer's cosmetic config document (`renderer.getConfig()`). */
     rendererConfig?: unknown;
-    /** The user-drawings document (`drawings.toJSON()`). */
+    /** The user-drawings document (`drawings.toJSON()`) of the symbol shown. */
     drawings?: unknown;
+    /** The drawings documents of the chart's OTHER symbols, by canonical symbol — a
+     *  switch back shows each symbol's own drawings again. */
+    drawingsBySymbol?: Record<string, unknown>;
     /** The indicator ledger: manifest entries + native entries. Either side persists
      *  the bare NAME/TYPE when every value sits on its declaration default and the
      *  indicator is visible, else the name/type plus the input(/prop) DELTAS and a
@@ -328,6 +331,11 @@ function sanitizeCell(raw: unknown): CellState | null {
     if (typeof c.indicatorValues === 'boolean') out.indicatorValues = c.indicatorValues;
     if (c.rendererConfig != null && typeof c.rendererConfig === 'object') out.rendererConfig = c.rendererConfig;
     if (c.drawings != null && typeof c.drawings === 'object') out.drawings = c.drawings;
+    const bySymbol = c.drawingsBySymbol;
+    if (bySymbol != null && typeof bySymbol === 'object' && !Array.isArray(bySymbol)) {
+        // Kept even when empty: an absent map marks a document from an older client.
+        out.drawingsBySymbol = Object.fromEntries(Object.entries(bySymbol).filter(([, d]) => d != null && typeof d === 'object'));
+    }
     const ind = c.indicators as Record<string, unknown> | undefined;
     if (ind != null && typeof ind === 'object') {
         // Bare names pass as-is; object entries keep only a string name and plain-object

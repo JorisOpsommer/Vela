@@ -4,8 +4,10 @@
 shared data feed**, wrapped in **one shared chrome** — topbar (symbol / timeframe /
 style / **layout** dropdowns, indicator picker, alerts), one drawing toolbar, object
 tree, data window, bottom bar, one keyboard map — that always **reflects and acts on the
-ACTIVE cell**. Cells are switched in place (`setMarket` under the hood), so indicators,
-drawings, and your subscriptions survive every symbol/timeframe change.
+ACTIVE cell**. Cells are switched in place (`setMarket` under the hood), so indicators
+and your subscriptions survive every symbol/timeframe change. Drawings belong to the
+symbol they were drawn on: switching a cell's symbol swaps in that symbol's drawings,
+and they persist with the cell's state (shared across its timeframes).
 
 ```ts
 import { VelaWorkspace } from '@luxalgo/vela/workspace';

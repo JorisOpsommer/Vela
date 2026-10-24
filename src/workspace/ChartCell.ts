@@ -11,7 +11,7 @@ import { normalizeSession, type MarketSession, type NativeBackend, type VelaOpti
 import type { OHLCV } from '../core/model/ohlcv';
 import type { VisibleRangePreset } from '../core/visible-range';
 import type { VisibleRange } from '../core/ports/IChartRenderer';
-import type { DrawingsOption } from '../core/drawings';
+import { DRAWINGS_DOC_VERSION, type DrawingsOption } from '../core/drawings';
 import type { MarketDataFeed } from '../core/ports/MarketDataFeed';
 import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
@@ -175,6 +175,8 @@ export interface CellDeps {
     dropCell(id: string, targetId: string): void;
     /** The cell's market changed in place (chrome/retention refresh upstream). */
     onMarketChanged(id: string): void;
+    /** The cell swapped in another symbol's drawings — its drawing links are stale. */
+    onDrawingsSwapped?(id: string): void;
     /** The cell's price style changed in place (topbar icon/menu refresh upstream). */
     onPriceStyleChanged(id: string): void;
     /** The cell's indicator ledger changed (count/picker refresh upstream). */
@@ -257,6 +259,11 @@ export class ChartCell {
     /** Latched: the symbol's own trading zone (`SymbolInfo.timezone`) — what the exchange
      *  rule resolves to on this cell. Undefined until metadata lands or when none is declared. */
     private exchangeZone: string | undefined;
+    /** The symbol the chart's live drawings belong to. Mid-switch it can trail the market
+     *  until {@link followDrawings} swaps the documents. */
+    private drawingsSymbol = '';
+    /** The drawings documents of this cell's OTHER symbols, by {@link drawingsKey}. */
+    private readonly drawingDocs = new Map<string, unknown>();
 
     private inner: Vela | null;
     /** The live app theme — seeded from deps, updated on `theme:changed` (the base the
@@ -332,6 +339,7 @@ export class ChartCell {
             bars: seed.bars,
             session: normalizeSession(seed.session),
         };
+        this.drawingsSymbol = symbol ?? '';
         const doc = gridHost.ownerDocument;
         this.host = doc.createElement('div');
         this.host.className = 'vela-cell';
@@ -425,6 +433,7 @@ export class ChartCell {
         // Pool restore: cosmetics + drawings round-trip (both validate untrusted input).
         if (seed.rendererConfig != null) this.inner.renderer.applyConfig(seed.rendererConfig);
         if (seed.drawings != null) this.inner.drawings.fromJSON(seed.drawings);
+        this.stashDrawings(seed.drawingsBySymbol);
         // A restored ledger: natives re-add immediately (registry truth from here on);
         // manifest entries wait for setManifest (the shared manifest may still be
         // resolving) and stay reported by `dehydrate` until then, so an early snapshot
@@ -456,6 +465,7 @@ export class ChartCell {
         });
         // The loading affordance and the watermark never share the canvas.
         this.inner.on('load:start', ({ symbol }) => {
+            this.followDrawings(symbol);
             this.watermark?.setLoading(true);
             this.statusline?.setSync(null);
             // The previous symbol's extended price must not sit on the new one's bars.
@@ -625,6 +635,7 @@ export class ChartCell {
         // The cell setters ALSO project optimistically before the load (see projectMarket);
         // this pass re-runs idempotently and adds the data-dependent bookkeeping.
         this.offMarket = this.inner.on('market:changed', ({ symbol, timeframe }) => {
+            this.followDrawings(symbol); // a superseding switch can skip `load:start`
             this.projectMarket(symbol, timeframe);
             this.refreshNativeCatalog(); // per-symbol support flags may differ
             this.refreshSymbolMetadata(); // the new symbol may (not) have sessions, and its own zone
@@ -1092,6 +1103,7 @@ export class ChartCell {
     setSymbol(symbol: string): void {
         if (!this.inner || symbol === this.symbol) return;
         this.unresolvedToasted = null; // a re-picked symbol gets a fresh verdict
+        this.followDrawings(symbol);
         void this.inner.setMarket({ symbol });
         this.projectMarket(symbol, this.timeframe);
         this.deps.onMarketChanged(this.id);
@@ -1599,6 +1611,60 @@ export class ChartCell {
         return Object.keys(ext).length > 0 ? ext : undefined;
     }
 
+    // ── per-symbol drawings ──
+    /** Drawings key for `symbol`: its canonical `PREFIX:TICKER` form when a provider
+     *  resolves it, so a bare and a prefixed pick of the same market share drawings. */
+    private drawingsKey(symbol: string): string {
+        return (this.inner?.data.canonicalSymbol(symbol) ?? symbol).toUpperCase();
+    }
+
+    private stashDrawings(docs: Record<string, unknown> | undefined): void {
+        const shown = this.drawingsKey(this.drawingsSymbol);
+        for (const [key, d] of Object.entries(docs ?? {})) if (key.toUpperCase() !== shown) this.drawingDocs.set(key.toUpperCase(), d);
+    }
+
+    /** Show `symbol`'s own drawings: the live ones are filed under the symbol they were
+     *  drawn on, and the incoming symbol's come back (none for a symbol never drawn on).
+     *  Every path that moves the market lands here — the cell setters, restores, sync
+     *  links, and host `chart.setMarket` calls (via `load:start` / `market:changed`). */
+    private followDrawings(symbol: string): void {
+        if (!this.inner) return;
+        const from = this.drawingsKey(this.drawingsSymbol);
+        const to = this.drawingsKey(symbol);
+        this.drawingsSymbol = symbol;
+        if (from === to) return;
+        const live = this.inner.drawings.toJSON();
+        if (live.drawings.length > 0) this.drawingDocs.set(from, live);
+        else this.drawingDocs.delete(from);
+        const incoming = this.drawingDocs.get(to);
+        this.drawingDocs.delete(to);
+        // A swap is no edit: it stays off the undo timeline, and `fromJSON` drops the
+        // drawings' own history, so Ctrl+Z never reaches into the other symbol.
+        this.history.silently(() => this.inner?.drawings.fromJSON(incoming ?? { version: DRAWINGS_DOC_VERSION, drawings: [] }));
+        this.deps.onDrawingsSwapped?.(this.id);
+    }
+
+    /** The persisted split: `symbol`'s document as `drawings`, every other symbol's under
+     *  `drawingsBySymbol`. The live drawings are filed under the symbol they belong to —
+     *  mid-switch that can still be the previous one. */
+    private drawingsSnapshot(symbol: string): Pick<CellState, 'drawings' | 'drawingsBySymbol'> {
+        const docs = new Map(this.drawingDocs);
+        if (this.inner) {
+            const live = this.inner.drawings.toJSON();
+            const owner = this.drawingsKey(this.drawingsSymbol);
+            if (live.drawings.length > 0) docs.set(owner, live);
+            else docs.delete(owner);
+        }
+        const key = this.drawingsKey(symbol);
+        const shown = docs.get(key);
+        docs.delete(key);
+        return {
+            drawings: shown ?? (this.inner ? { version: DRAWINGS_DOC_VERSION, drawings: [] } : undefined),
+            // Written even when empty: an absent map marks a document from an older client.
+            drawingsBySymbol: this.inner || docs.size > 0 ? Object.fromEntries(docs) : undefined,
+        };
+    }
+
     // ── lifecycle ──
     /**
      * Apply a restored cell state IN PLACE — the chart instance survives (the market
@@ -1617,7 +1683,25 @@ export class ChartCell {
         if (cs.indicatorValues !== undefined && cs.indicatorValues !== this.indicatorValuesOn) this.setIndicatorValuesVisible(cs.indicatorValues);
         // Cosmetics + drawings round-trip (both validate untrusted input).
         if (cs.rendererConfig != null) this.inner.renderer.applyConfig(cs.rendererConfig);
-        if (cs.drawings != null) this.inner.drawings.fromJSON(cs.drawings);
+        if (cs.drawings != null || cs.drawingsBySymbol != null) {
+            // The document's drawings belong to the symbol it restores, which the market
+            // switch below then finds already in place.
+            const target = prefixedSymbol(cs) ?? this.symbol;
+            if (cs.drawingsBySymbol != null) {
+                this.drawingDocs.clear();
+            } else {
+                // Saved by a client that predates per-symbol drawings: it speaks only for
+                // the symbol it shows, so the other symbols' drawings stay.
+                const live = this.inner.drawings.toJSON();
+                const owner = this.drawingsKey(this.drawingsSymbol);
+                if (live.drawings.length > 0) this.drawingDocs.set(owner, live);
+                else this.drawingDocs.delete(owner);
+                this.drawingDocs.delete(this.drawingsKey(target));
+            }
+            this.drawingsSymbol = target;
+            this.inner.drawings.fromJSON(cs.drawings ?? { version: DRAWINGS_DOC_VERSION, drawings: [] });
+            this.stashDrawings(cs.drawingsBySymbol);
+        }
         if (cs.indicators) this.applyIndicatorLedger(cs.indicators as { manifest: LedgerManifestEntry[]; natives: LedgerNativeEntry[] });
         // Third-party state converges to the document too: the restored bag REPLACES
         // the baseline (absent in the document = the document carries none), then the
@@ -1661,7 +1745,7 @@ export class ChartCell {
             indicatorTitles: this.indicatorTitlesOn,
             indicatorValues: this.indicatorValuesOn,
             rendererConfig: this.inner?.renderer.getConfig() ?? undefined,
-            drawings: this.inner ? this.inner.drawings.toJSON() : undefined,
+            ...this.drawingsSnapshot(live?.symbol ?? this.symbol),
             // Natives from the chart's SYNC registry read — an async catalog mirror here
             // lost unload-time saves, and the old empty-set fallbacks resurrected removed
             // indicators. Manifest names fall back to the restored ledger only until the
