@@ -14,7 +14,7 @@ export interface ViewportState {
     rightOffset: number;
 }
 
-export const MIN_BAR_SPACING = 0.5;
+export const MIN_BAR_SPACING = 0.05;
 /**
  * A high sanity ceiling for a single bar's pixel width — NOT the practical zoom-in limit. The real
  * max-zoom is governed by `MIN_VISIBLE_BARS` in the renderer's `clampViewport` (keep ≥ N candles on

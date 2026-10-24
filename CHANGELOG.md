@@ -84,6 +84,9 @@ All notable changes to Vela, newest first.
   takes that save's state, and a tab that comes back into view catches up. A change made in a
   stale tab before it caught up is discarded, so make the change again after the refresh.
   Undo and redo are saved too.
+- **Zoom out further on long histories.** Zooming out used to stop early once a chart held more
+  than about two screen-widths of bars. You can now zoom out until every bar fits the width, even
+  on a long history.
 
 ## [0.8.5]
 
