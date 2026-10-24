@@ -242,6 +242,13 @@ export class DrawingSettingsPopup {
         // Leading move handle — drag the whole toolbar anywhere on the chart.
         bar.appendChild(this.dragHandle());
 
+        // A locked drawing offers only its unlock control: protected until someone unlocks it.
+        if (every((d) => d.locked)) {
+            bar.appendChild(this.toggle('Unlock', UNLOCK_ICON, true, (v) => actions.setLocked(v), LOCK_ICON));
+            this.mount(el, bar, anchor);
+            return;
+        }
+
         if (paths.has('glyph')) {
             const cur = common((d) => (d as unknown as { glyph?: string }).glyph ?? GLYPH_OPTIONS[0]!);
             bar.appendChild(this.dropdown('Icon', GLYPH_OPTIONS, cur, (g) => glyphIcon(g), (v) => actions.patch({ glyph: v })));
@@ -396,6 +403,11 @@ export class DrawingSettingsPopup {
         bar.appendChild(del);
         bar.appendChild(this.kebabButton(actions));
 
+        this.mount(el, bar, anchor);
+    }
+
+    /** Attach a built bar to the host, float it at the anchor and arm the outside-click dismiss. */
+    private mount(el: HTMLDivElement, bar: HTMLDivElement, anchor: PopupAnchor | null): void {
         el.append(bar);
         this.host.appendChild(el);
         this.el = el;

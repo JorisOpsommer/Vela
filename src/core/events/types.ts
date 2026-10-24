@@ -90,8 +90,9 @@ export interface VelaEventMap extends Record<string, unknown> {
    *  cancelled). Transient: nothing is in the store yet. Multi-chart hosts mirror
    *  it on linked charts via `drawings.setExternalGhost`. */
   "drawing:draft": { doc: SerializedDrawing | null };
-  /** A user drawing's anchors/style/text changed. */
-  "drawing:edited": { id: string };
+  /** A user drawing's anchors/style/text/lock changed. `auto` marks an idle auto-lock: the
+   *  user did not make it, so undo history skips it while persistence still saves it. */
+  "drawing:edited": { id: string; auto?: boolean };
   /** Selection changed. `ids` is every selected drawing in selection order; `id` is the
    *  primary (`ids[0]`, the one a settings popup edits), null when nothing is selected. */
   "drawing:selected": { id: string | null; ids: string[] };

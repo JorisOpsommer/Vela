@@ -366,6 +366,11 @@ export class VelaWorkspace {
         this.flushPendingState();
         this.persistNow();
     };
+    /** Hiding the tab is the last moment a mobile browser reliably gives: the same flush, so the
+     *  edit of the last half second reaches the host before the page is put away. */
+    private readonly onHide = (): void => {
+        if (document.hidden) this.onUnload();
+    };
     /** Re-entrance guard around one propagation tick: followers' synchronous echoes
      *  (their setVisibleRange re-emits viewport:changed) must not re-propagate. */
     private syncBusy = false;
@@ -458,6 +463,7 @@ export class VelaWorkspace {
                 });
             }
             if (typeof window !== 'undefined') window.addEventListener('beforeunload', this.onUnload);
+            if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onHide);
         }
         this.timezone = boot?.timezone ?? opts.timezone ?? 'Etc/UTC';
         if (boot?.favorites) this.favs = [...boot.favorites];
@@ -1356,6 +1362,7 @@ export class VelaWorkspace {
         this.destroyed = true;
         this.replay.destroy();
         if (this.persistKey !== null && typeof window !== 'undefined') window.removeEventListener('beforeunload', this.onUnload);
+        if (this.persistKey !== null && typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onHide);
         this.resizeObserver?.disconnect();
         this.splitters.destroy();
         for (const [id, cell] of [...this.cellsById]) {
@@ -1429,7 +1436,11 @@ export class VelaWorkspace {
         this.mobileBar?.setTimeframe(cell.timeframe);
         this.syncMobileMaximize(); // the new active cell may hold a maximized pane
         this.drawingPill?.onChart(cell.chart); // the pill mirrors the ACTIVE cell's tool state
-        const pushHistory = (): void => this.topbar.setHistoryState(cell.history.canUndo, cell.history.canRedo);
+        // Undo and redo change the document too: marking it dirty here is what saves them.
+        const pushHistory = (): void => {
+            this.topbar.setHistoryState(cell.history.canUndo, cell.history.canRedo);
+            this.markStateDirty();
+        };
         this.historyUnsub?.();
         this.historyUnsub = cell.history.onChange(pushHistory);
         pushHistory();

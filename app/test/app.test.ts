@@ -200,6 +200,30 @@ describe('signed-in API', () => {
         expect((await app.inject({ url: '/api/storage/workspace', headers: { cookie: r.cookie } })).statusCode).toBe(404);
     });
 
+    it('refuses a save built on a stale revision, so one device cannot overwrite another', async () => {
+        const a = await login('alice');
+        const put = (base: string | null, body: string) =>
+            app.inject({
+                method: 'PUT',
+                url: '/api/storage/workspace',
+                headers: { cookie: a.cookie, origin: ORIGIN, host: 'charts.test', 'content-type': 'text/plain', 'x-csrf-token': a.csrf, ...(base ? { 'x-base-revision': base } : {}) },
+                payload: body,
+            });
+        const first = (await put(null, '{"device":"a"}')).json() as { revision: number };
+        const read = await app.inject({ url: '/api/storage/workspace', headers: { cookie: a.cookie } });
+        expect(read.headers['x-storage-revision']).toBe(String(first.revision));
+        // The device that read `first.revision` saves on top of it: accepted, and the revision moves.
+        const second = await put(String(first.revision), '{"device":"a","more":true}');
+        expect(second.statusCode).toBe(200);
+        const newer = second.json() as { revision: number };
+        expect(newer.revision).toBeGreaterThan(first.revision);
+        // A tab still holding `first.revision` (another device saved meanwhile) is refused, and told the revision.
+        const stale = await put(String(first.revision), '{"device":"stale"}');
+        expect(stale.statusCode).toBe(409);
+        expect(stale.json()).toMatchObject({ revision: newer.revision });
+        expect((await app.inject({ url: '/api/storage/workspace', headers: { cookie: a.cookie } })).body).toBe('{"device":"a","more":true}');
+    });
+
     it('keeps admin routes for admins', async () => {
         const a = await login('alice');
         expect((await app.inject({ url: '/api/admin/users', headers: { cookie: a.cookie } })).statusCode).toBe(403);

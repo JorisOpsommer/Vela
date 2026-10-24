@@ -6,6 +6,10 @@ All notable changes to Vela, newest first.
 
 ### Added
 
+- **Untouched drawings lock themselves.** In the self-hosted app, a drawing left alone for a
+  minute locks, so a stray drag cannot move it or delete it. Click a locked drawing and its
+  toolbar offers only an **Unlock** control; once unlocked it can be edited and deleted again.
+  Touching a drawing restarts the minute, and a drawing that stays selected does not lock.
 - **Charts open from bars the server already has.** A data provider can now hand the chart the
   bars it already holds with `peekBars`, and the chart paints them at once while the full load
   runs. The stretch still on its way carries a soft shimmering band with faint ghost candles,
@@ -70,6 +74,14 @@ All notable changes to Vela, newest first.
   one pill with a ring that fills through the session; tap it for the same hours in a
   sheet. Providers that offer `getCalendar` get it with no extra work, and continuous
   markets such as crypto show no countdown.
+
+### Changed
+
+- **Your saved workspace stays in step across devices.** A chart open in two places no longer
+  overwrites the newer one with an older copy. A tab that was behind on another device's save
+  takes that save's state, and a tab that comes back into view catches up. A change made in a
+  stale tab before it caught up is discarded, so make the change again after the refresh.
+  Undo and redo are saved too.
 
 ## [0.8.5]
 

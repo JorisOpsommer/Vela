@@ -68,7 +68,8 @@ export class WidgetHistory {
         for (const u of this.unsubs) u();
         this.unsubs = [
             chart.on('drawing:created', () => this.pushDrawingStep()),
-            chart.on('drawing:edited', () => this.pushDrawingStep()),
+            // An idle auto-lock is not the user's step — leave it off the undo timeline.
+            chart.on('drawing:edited', ({ auto }) => { if (!auto) this.pushDrawingStep(); }),
             chart.on('drawing:removed', () => this.pushDrawingStep()),
         ];
     }

@@ -21,9 +21,12 @@ export function setCsrf(token: string): void {
     csrf = token;
 }
 
-export async function api<T>(path: string, init: { method?: string; body?: unknown; text?: string; keepalive?: boolean; redirectOn401?: boolean } = {}): Promise<T> {
+export async function api<T>(
+    path: string,
+    init: { method?: string; body?: unknown; text?: string; keepalive?: boolean; redirectOn401?: boolean; headers?: Record<string, string>; onResponse?: (res: Response) => void } = {},
+): Promise<T> {
     const method = init.method ?? 'GET';
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...init.headers };
     let body: string | undefined;
     if (init.text != null) {
         headers['Content-Type'] = 'text/plain; charset=utf-8';
@@ -34,6 +37,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     }
     if (method !== 'GET' && csrf) headers['X-CSRF-Token'] = csrf;
     const res = await fetch(path, { method, headers, body, credentials: 'same-origin', keepalive: init.keepalive });
+    init.onResponse?.(res);
     if (res.status === 401 && init.redirectOn401 !== false) {
         location.href = '/login';
         throw new ApiError('Not signed in.', 401);

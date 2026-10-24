@@ -28,13 +28,11 @@ export function topDrawingAt(
 }
 
 /**
- * What a selection-wide delete removes: a lone selected drawing goes regardless, but inside a
- * multi-selection a LOCKED drawing is protected — the others go and it stays (selected).
+ * What a selection-wide delete removes. A LOCKED drawing is protected whether it is alone or in a
+ * multi-selection: the others go and it stays (selected) until someone unlocks it.
  */
 export function deletableSelection(selected: Iterable<string>, drawings: readonly Drawing[]): string[] {
-    const ids = [...selected];
-    if (ids.length < 2) return ids;
-    return ids.filter((id) => !drawings.find((d) => d.id === id)?.locked);
+    return [...selected].filter((id) => !drawings.find((d) => d.id === id)?.locked);
 }
 
 /**

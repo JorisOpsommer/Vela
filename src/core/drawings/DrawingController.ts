@@ -51,6 +51,9 @@ export interface AddInit {
  * mutations + `drawing:*` events. Inert (but persistence still works) when the
  * active renderer lacks `userDrawings` — that's the LwC path.
  */
+/** How long a drawing may sit untouched before it locks itself, unless the host says otherwise. */
+const DEFAULT_AUTO_LOCK_MS = 60_000;
+
 export class DrawingController {
     private readonly store = new DrawingStore();
     private readonly history = new DrawingHistory();
@@ -72,6 +75,10 @@ export class DrawingController {
     /** Per-tool saved looks ("styles"), in the order they were saved. */
     private templates = new Map<DrawingTypeKey, DrawingToolTemplate[]>();
     private readonly subs: Unsubscribe[] = [];
+    /** Idle milliseconds before an untouched drawing locks itself; 0 = off. */
+    private readonly autoLockMs: number;
+    /** One pending idle lock per drawing. Any touch restarts it; a selected drawing has none. */
+    private readonly idleLocks = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(
         renderer: IChartRenderer,
@@ -81,6 +88,13 @@ export class DrawingController {
     ) {
         this.enabled = !!renderer.capabilities.userDrawings && !!renderer.userDrawingsPort;
         this.port = this.enabled ? renderer.userDrawingsPort! : null;
+        // On by default; `drawings: false` or `autoLock: false` turns it off.
+        const autoLock = option === false ? false : typeof option === 'object' ? option.autoLock : undefined;
+        this.autoLockMs = autoLock === false ? 0 : (autoLock ?? DEFAULT_AUTO_LOCK_MS);
+        // Every edit, creation and removal — API calls, renderer gestures, undo — is a touch.
+        this.subs.push(this.events.on('drawing:created', ({ id }) => this.touchIdle([id])));
+        this.subs.push(this.events.on('drawing:edited', ({ id, auto }) => { if (!auto) this.touchIdle([id]); }));
+        this.subs.push(this.events.on('drawing:removed', ({ id }) => this.clearIdle(id)));
         if (this.port) {
             const { definition, visible } = buildToolbar(option);
             this.port.setToolbar(definition);
@@ -469,11 +483,13 @@ export class DrawingController {
         this.history.clear(); // a new document is a context switch — don't undo into the old one
         this.selectedIds = [];
         this.store.load(doc); // load() emits change → sync() when enabled
+        this.rearmIdle();
     }
 
     destroy(): void {
         for (const u of this.subs) u();
         this.subs.length = 0;
+        for (const id of [...this.idleLocks.keys()]) this.clearIdle(id);
     }
 
     // ── internals ──
@@ -490,8 +506,45 @@ export class DrawingController {
         } else {
             next = [...ids];
         }
+        const previous = this.selectedIds;
         this.selectedIds = next.filter((id) => this.store.has(id));
+        // A selected drawing is being looked at, so its idle lock pauses; deselecting restarts it.
+        for (const id of this.selectedIds) this.clearIdle(id);
+        this.touchIdle(previous.filter((id) => !this.selectedIds.includes(id)));
         this.announceSelection();
+    }
+
+    /** Restart the idle countdown of each unlocked, unselected drawing in `ids`. */
+    private touchIdle(ids: readonly string[]): void {
+        if (this.autoLockMs <= 0) return;
+        for (const id of ids) {
+            this.clearIdle(id);
+            const d = this.store.get(id);
+            if (!d || d.locked || this.selectedIds.includes(id)) continue;
+            this.idleLocks.set(id, setTimeout(() => this.lockIdle(id), this.autoLockMs));
+        }
+    }
+
+    private clearIdle(id: string): void {
+        const timer = this.idleLocks.get(id);
+        if (timer !== undefined) clearTimeout(timer);
+        this.idleLocks.delete(id);
+    }
+
+    /** Arm every drawing after a whole document lands (load, undo, redo). */
+    private rearmIdle(): void {
+        for (const id of [...this.idleLocks.keys()]) this.clearIdle(id);
+        this.touchIdle(this.store.all().map((d) => d.id));
+    }
+
+    /** The countdown ran out: lock the drawing. Not a history step — the user did not lock it —
+     *  but it is an `auto` edit, so the workspace still saves the lock. */
+    private lockIdle(id: string): void {
+        this.idleLocks.delete(id);
+        const d = this.store.get(id);
+        if (!d || d.locked || this.selectedIds.includes(id)) return;
+        this.store.setLocked(id, true);
+        this.events.emit('drawing:edited', { id, auto: true });
     }
 
     /** Push the selection to the renderer and announce it (primary + the full list). */
@@ -504,6 +557,7 @@ export class DrawingController {
     private restoreSnapshot(doc: DrawingsDocument): void {
         this.store.load(doc); // fires onChange → sync() + autoscale
         this.selectedIds = this.selectedIds.filter((id) => this.store.has(id));
+        this.rearmIdle();
         this.announceSelection();
     }
 

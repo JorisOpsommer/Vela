@@ -1,6 +1,6 @@
 // The chart app: a Vela workspace on the server's data provider, with the account's
 // saved layout restored before first paint and a watchlist panel docked on the right.
-import { VelaWorkspace } from '../../src/workspace';
+import { VelaWorkspace, decodeState } from '../../src/workspace';
 import { registerSidePanel, registerWidgetAction } from '../../src/plugin';
 import { registerIcon, svg16 } from '../../src/ui';
 import { loadMe, logout } from './lib/api';
@@ -58,6 +58,11 @@ async function main(): Promise<void> {
         providers: { market: () => provider },
     });
     window.addEventListener('pagehide', () => storage.flush());
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) storage.flush();
+    });
+    // Another device saved this account's workspace (a chart, its drawings, a layout): show it here too.
+    storage.onRemote(WORKSPACE_KEY, (value) => ws.applyState(decodeState(value)));
     // Links from the Insights page open a symbol: /?symbol=NVDA.
     const linked = new URLSearchParams(location.search).get('symbol');
     if (linked && /^[A-Za-z0-9.:^=/ -]{1,40}$/.test(linked)) {

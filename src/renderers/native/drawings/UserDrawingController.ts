@@ -865,7 +865,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
                 this.emit({ kind: 'duplicate', ids: this.selectionIds() });
                 break;
             case 'delete': {
-                const ids = this.selectedIds.size ? this.deletableSelection() : this.hoveredId ? [this.hoveredId] : [];
+                const ids = this.selectedIds.size ? this.deletableSelection() : deletableSelection(this.hoveredId ? [this.hoveredId] : [], this.drawings);
                 if (ids.length) {
                     this.popup.close();
                     this.emit({ kind: 'delete', ids });
@@ -1184,6 +1184,8 @@ export class UserDrawingController implements IDrawingsRendererPort {
                 if (!d) return;
                 d.locked = v;
                 this.emit({ kind: 'edit', doc: d.serialize() });
+                // Rebuild the bar: a locked drawing shows only its unlock control, an unlocked one the full bar.
+                this.openSettingsById(id, 0, 0);
             },
             reorder: (to) => this.emit({ kind: 'reorder', id, to }),
             duplicate: () => {

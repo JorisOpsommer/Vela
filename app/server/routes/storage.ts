@@ -1,5 +1,7 @@
 // Per-account key/value store behind the chart's storage adapter (layouts, drawings,
-// indicator setups) and the watchlist.
+// indicator setups) and the watchlist. Every value carries a revision (its last write time):
+// a write that names a stale revision is refused, so a tab that has not seen another
+// device's save cannot silently overwrite it.
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../app';
 
@@ -15,9 +17,9 @@ export function registerStorageRoutes(app: FastifyInstance, ctx: AppContext): vo
     app.get('/api/storage/:key', async (req, reply) => {
         const { key } = req.params as { key: string };
         if (!KEY_RE.test(key)) return reply.code(400).send({ error: 'Bad key.' });
-        const row = db.prepare('SELECT value FROM user_storage WHERE user_id = ? AND key = ?').get(req.session!.user.id, key) as { value: string } | undefined;
+        const row = db.prepare('SELECT value, updated_at FROM user_storage WHERE user_id = ? AND key = ?').get(req.session!.user.id, key) as { value: string; updated_at: number } | undefined;
         if (!row) return reply.code(404).send({ error: 'Not found.' });
-        return reply.type('text/plain; charset=utf-8').send(row.value);
+        return reply.header('x-storage-revision', String(row.updated_at)).type('text/plain; charset=utf-8').send(row.value);
     });
 
     app.put('/api/storage/:key', async (req, reply) => {
@@ -26,11 +28,17 @@ export function registerStorageRoutes(app: FastifyInstance, ctx: AppContext): vo
         const value = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? null);
         if (Buffer.byteLength(value) > MAX_VALUE_BYTES) return reply.code(413).send({ error: 'Too large.' });
         const userId = req.session!.user.id;
+        const current = db.prepare('SELECT updated_at FROM user_storage WHERE user_id = ? AND key = ?').get(userId, key) as { updated_at: number } | undefined;
+        // The writer names the revision it built on; a newer save from another device refuses it.
+        const base = req.headers['x-base-revision'];
+        if (current && base !== undefined && String(current.updated_at) !== String(base)) {
+            return reply.code(409).send({ error: 'Changed on another device.', revision: current.updated_at });
+        }
         const count = (db.prepare('SELECT COUNT(*) AS n FROM user_storage WHERE user_id = ?').get(userId) as { n: number }).n;
-        const exists = db.prepare('SELECT 1 FROM user_storage WHERE user_id = ? AND key = ?').get(userId, key);
-        if (!exists && count >= MAX_KEYS_PER_USER) return reply.code(409).send({ error: 'Storage key limit reached.' });
-        db.prepare('INSERT INTO user_storage (user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(userId, key, value, Date.now());
-        return { ok: true };
+        if (!current && count >= MAX_KEYS_PER_USER) return reply.code(409).send({ error: 'Storage key limit reached.' });
+        const revision = Math.max(Date.now(), (current?.updated_at ?? 0) + 1);
+        db.prepare('INSERT INTO user_storage (user_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(userId, key, value, revision);
+        return { ok: true, revision };
     });
 
     app.delete('/api/storage/:key', async (req, reply) => {

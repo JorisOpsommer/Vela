@@ -46,6 +46,10 @@ export type DrawingsOption =
           toolbar?: boolean;
           tools?: DrawingTypeKey[];
           groups?: ToolbarGroupConfig[];
+          /** Milliseconds a drawing may sit untouched before it locks itself (so it cannot be
+           *  dragged or deleted by accident). Defaults to one minute; `false` turns it off.
+           *  Touching a locked drawing shows its unlock control. */
+          autoLock?: number | false;
       };
 
 const FIBONACCI_TYPES: DrawingTypeKey[] = [
