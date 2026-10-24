@@ -88,6 +88,7 @@ export class Box extends Drawing {
                 { path: 'style.extendRight', label: 'Extend right', kind: 'boolean', group: 'line' },
                 { path: 'style.fillColor', label: 'Fill color', kind: 'color', group: 'fill' },
                 ...TEXT_FIELDS,
+                { path: 'text.repeat', label: 'Repeat text', kind: 'boolean', group: 'text' },
             ],
         };
     }

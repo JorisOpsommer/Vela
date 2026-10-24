@@ -117,6 +117,10 @@ follow immediately; reaching for them does not end the edit. **Bold** and **ital
 field behind the popup's **Text** button, next to the text they format. On shapes that merely carry a
 label (a trend line, a box), all four controls stay in that panel with the label field.
 
+A box's label sits in its middle, which can be off screen on a long box or one that runs to the
+chart edges. Turn on **Repeat text** in the box's settings (`text.repeat: true`) and the label
+repeats along the box, so wherever you scroll, the part of the box on screen shows it.
+
 Drag a handle to reshape; drag the body to move the whole drawing.
 
 **Hold Shift to move in a straight line.** Holding **Shift** while you drag a drawing's body

@@ -478,6 +478,7 @@ export class DrawingPainter {
         ctx.textAlign = layout.align;
         const lh = labelLineHeight(fs);
         const lines = text.value.split('\n');
+        const xs = d instanceof Box && text.repeat ? boxLabelRepeats(d, proj, layout.x, Math.max(...lines.map((l) => ctx.measureText(l).width))) : [layout.x];
         // A halo in the chart background keeps the words readable where a line (its own, or
         // another drawing's) runs through them. Free text and a box's centered label sit clear
         // of any line and keep their plain look.
@@ -488,7 +489,7 @@ export class DrawingPainter {
             lines.forEach((line, i) => ctx.strokeText(line, layout.x, layout.top + i * lh));
         }
         ctx.fillStyle = text.color ?? theme.textColor;
-        lines.forEach((line, i) => ctx.fillText(line, layout.x, layout.top + i * lh));
+        for (const x of xs) lines.forEach((line, i) => ctx.fillText(line, x, layout.top + i * lh));
         if (d.type === 'text') this.paintTextFrame(ctx, d.id, layout.x, layout.top, lines, fs, theme);
         ctx.restore();
     }
@@ -1872,6 +1873,27 @@ function formatMachRatio(ratio: number): string {
     if (!Number.isFinite(ratio)) return '';
     const rounded = Math.round(ratio * 1000) / 1000;
     return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+/** Empty plot between two copies of a repeated box label. */
+const LABEL_REPEAT_GAP = 240;
+/** Clear space kept between a repeated label and the box's (or the plot's) side. */
+const LABEL_REPEAT_PAD = 8;
+
+/** The centers a repeated box label paints at: every label width plus a gap, stepped out from
+ *  the box's own label position so the copies scroll with the chart, kept to the part of the
+ *  box on screen. Where none would fit whole, one copy sits in the visible part. */
+function boxLabelRepeats(d: Box, proj: Projector, x0: number, width: number): number[] {
+    const f = d.frame(proj);
+    if (!f) return [x0];
+    const half = width / 2 + LABEL_REPEAT_PAD;
+    const left = Math.max(f.x, 0) + half;
+    const right = Math.min(f.x + f.w, proj.width) - half;
+    if (right < left) return [x0];
+    const step = width + LABEL_REPEAT_GAP;
+    const xs: number[] = [];
+    for (let x = x0 + Math.ceil((left - x0) / step) * step; x <= right; x += step) xs.push(x);
+    return xs.length > 0 ? xs : [Math.min(Math.max(x0, left), right)];
 }
 
 /** Where a drawing's label paints. With `rotate`, the canvas is rotated by `angle`

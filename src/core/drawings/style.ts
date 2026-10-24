@@ -36,6 +36,9 @@ export interface DrawingText {
     place?: 'start' | 'middle' | 'end';
     /** Which side of the line its label sits on (line tools); absent = above. */
     side?: 'above' | 'below';
+    /** Repeat the label along the box (box only), so a long or extended box reads wherever
+     *  the chart is scrolled. */
+    repeat?: boolean;
 }
 
 /** The default drawing accent — the Vela logo blue. */
