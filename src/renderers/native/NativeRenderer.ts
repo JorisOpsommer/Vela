@@ -1787,7 +1787,8 @@ export class NativeRenderer implements IChartRenderer {
      */
     private makeDataCanvas(): HTMLCanvasElement {
         const c = document.createElement('canvas');
-        Object.assign(c.style, { position: 'absolute', inset: '0', width: '100%', height: '100%' });
+        // The browser's focus ring paints white around a focused chart; the chart keeps focus for its shortcuts.
+        Object.assign(c.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', outline: 'none' });
         return c;
     }
 

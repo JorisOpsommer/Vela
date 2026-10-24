@@ -180,7 +180,7 @@ const CSS = `
     content: '';
     position: absolute;
     inset: 0;
-    border: 2px solid var(--vela-fg-bright);
+    border: 2px solid var(--vela-border-soft);
     pointer-events: none;
     z-index: 10;
 }
