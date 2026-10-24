@@ -72,8 +72,8 @@ export function registerTrendRoutes(app: FastifyInstance, ctx: AppContext): void
         const rows = accountWatchlist(db, market.catalog, req.session!.user.id).map((symbol) => {
             const entry = market.resolve(symbol);
             const reads = trends.reads(symbol);
-            const signals: TrendSignal[] = [...(reads.D?.signals ?? []), ...(reads['240']?.signals ?? [])].sort((a, b) => b.strength - a.strength);
-            return { symbol, name: entry?.name ?? symbol, class: entry?.class ?? null, D: brief(reads.D), h4: brief(reads['240']), top: signals[0] ?? null };
+            const signals: TrendSignal[] = [...(reads.W?.signals ?? []), ...(reads.D?.signals ?? []), ...(reads['240']?.signals ?? [])].sort((a, b) => b.strength - a.strength);
+            return { symbol, name: entry?.name ?? symbol, class: entry?.class ?? null, W: brief(reads.W), D: brief(reads.D), h4: brief(reads['240']), top: signals[0] ?? null };
         });
         return { rows };
     });
@@ -83,7 +83,7 @@ export function registerTrendRoutes(app: FastifyInstance, ctx: AppContext): void
         const entry = market.resolve(raw);
         if (!entry) return reply.code(400).send({ error: 'Unknown symbol.' });
         let reads = trends.reads(entry.symbol);
-        if (!reads.D && !reads['240']) reads = await trends.readNow(entry.symbol);
+        if (!reads.W || !reads.D || !reads['240']) reads = await trends.readNow(entry.symbol);
         const copied = Object.keys(readInbox(req.session!.user.id).copied)
             .filter((k) => k.startsWith(`${entry.symbol}|`))
             .map((k) => k.slice(entry.symbol.length + 1));

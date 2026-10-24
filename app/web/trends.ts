@@ -1,7 +1,7 @@
 // The trends page: the computer's view of the account's watchlist. A view-only chart shows
-// the support and resistance boxes and trend lines the server detected on the 4h and Daily
-// bars; nothing can be drawn here. Each shape copies to the account's own chart of that
-// symbol — from its toolbar on the chart, or from the panel's list.
+// the support and resistance boxes and trend lines the server detected on the 4h, Daily
+// and Weekly bars; nothing can be drawn here. Each shape copies to the account's own chart
+// of that symbol — from its toolbar on the chart, or from the panel's list.
 import { VelaWorkspace } from '../../src/workspace';
 import { registerDrawingAction, registerSidePanel, registerWidgetAction, type SidePanelDescriptor, type WidgetContext } from '../../src/plugin';
 import { registerIcon, svg16 } from '../../src/ui';
@@ -13,7 +13,7 @@ import { symbolGlyph } from './lib/symbol-glyph';
 import './app.css';
 import './trends.css';
 
-type Tf = '240' | 'D';
+type Tf = '240' | 'D' | 'W';
 type Kind = 'support' | 'resistance' | 'trendline-up' | 'trendline-down';
 
 interface Shape {
@@ -62,6 +62,7 @@ interface Row {
     symbol: string;
     name: string;
     class: string | null;
+    W: Brief | null;
     D: Brief | null;
     h4: Brief | null;
     top: Signal | null;
@@ -87,9 +88,10 @@ const SIGNAL_LABEL: Record<Signal['kind'], string> = {
     'trendline-break': 'Trend line break',
     'trendline-bounce': 'On its trend line',
 };
-const TF_LABEL: Record<Tf, string> = { '240': '4h', D: '1D' };
-/** Daily shapes show on daily and weekly charts, 4h ones on the intraday ones. */
-const SHOW_ON: Record<Tf, string[]> = { D: ['D', 'W'], '240': ['15', '60', '240'] };
+const TF_LABEL: Record<Tf, string> = { '240': '4h', D: '1D', W: '1W' };
+/** Each timeframe's shapes show on its own chart; weekly ones on the monthly too, 4h ones on the intraday ones. */
+const SHOW_ON: Record<Tf, string[]> = { W: ['W', 'M'], D: ['D'], '240': ['15', '60', '240'] };
+const TF_TITLE: Record<Tf, string> = { '240': '4-hour shapes', D: 'Daily shapes', W: 'Weekly shapes' };
 
 registerIcon('app-copy', svg16('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.8c0-.7-.6-1.3-1.3-1.3H3.8c-.7 0-1.3.6-1.3 1.3v5.4c0 .7.6 1.3 1.3 1.3h1.7"/>'));
 registerIcon('app-trends', svg16('<path d="M2 12.5l4-4 3 2.5 5-6"/><path d="M10.5 5H14v3.5"/>'));
@@ -114,25 +116,31 @@ function fmtPrice(v: number): string {
     return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+/** The detected timeframe a chart timeframe shows. */
+function bandOf(tf: string): Tf {
+    return tf === 'W' || tf === 'M' ? 'W' : tf === 'D' ? 'D' : '240';
+}
+
 function shapeTitle(s: Shape): string {
     if (s.kind === 'support' || s.kind === 'resistance') return `${KIND_LABEL[s.kind]} ${fmtPrice(s.anchors[1].price)}–${fmtPrice(s.anchors[0].price)}`;
     return KIND_LABEL[s.kind];
 }
 
-/** The chart drawing for a detected shape: a box running to the right edge, or a line extended right. */
+/** The chart drawing for a detected shape: a box across the whole chart with its label repeated
+ *  along it (readable wherever the chart is scrolled), or a line extended right. */
 function toDrawing(s: Shape, z: number): SerializedDrawing {
     const color = COLORS[s.kind];
     const box = s.kind === 'support' || s.kind === 'resistance';
-    const label = `${box ? KIND_LABEL[s.kind] : s.kind === 'trendline-up' ? 'Rising line' : 'Falling line'} · ${TF_LABEL[s.tf]} · ${s.touches} touches${s.confluence ? ' · both timeframes' : ''}`;
+    const label = `${box ? KIND_LABEL[s.kind] : s.kind === 'trendline-up' ? 'Rising line' : 'Falling line'} · ${TF_LABEL[s.tf]} · ${s.touches} touches${s.confluence ? ' · multi-timeframe' : ''}`;
     return {
         id: `${AUTO}${s.id}`,
         type: box ? 'box' : 'trendline',
         paneId: 'price',
         anchors: s.anchors.map((a) => ({ ...a })),
         style: box
-            ? { lineColor: color, lineWidth: s.confluence ? 2 : 1, lineStyle: 'solid', fillColor: FILLS[s.kind as 'support' | 'resistance'], extendRight: true }
+            ? { lineColor: color, lineWidth: s.confluence ? 2 : 1, lineStyle: 'solid', fillColor: FILLS[s.kind as 'support' | 'resistance'], extendLeft: true, extendRight: true }
             : { lineColor: color, lineWidth: 2, lineStyle: s.status === 'broken' ? 'dashed' : 'solid', extendRight: true },
-        text: box ? { value: label, color, size: 'small', hAlign: 'left', vAlign: 'top' } : { value: label, color, size: 'small', hAlign: 'center', vAlign: 'center', place: 'end', side: s.kind === 'trendline-up' ? 'below' : 'above' },
+        text: box ? { value: label, color, size: 'small', hAlign: 'left', vAlign: 'top', repeat: true } : { value: label, color, size: 'small', hAlign: 'center', vAlign: 'center', place: 'end', side: s.kind === 'trendline-up' ? 'below' : 'above' },
         locked: false,
         visible: true,
         zIndex: z,
@@ -172,17 +180,17 @@ class TrendsView {
 
     mount(ctx: WidgetContext, body: HTMLElement, slot: HTMLElement): void {
         body.classList.add('tr');
-        for (const tf of ['240', 'D'] as const) {
+        for (const tf of ['240', 'D', 'W'] as const) {
             const b = el('button', 'tr-chip', TF_LABEL[tf]);
             b.type = 'button';
             b.dataset.tf = tf;
-            b.title = tf === 'D' ? 'Daily shapes' : '4-hour shapes';
+            b.title = TF_TITLE[tf];
             b.onclick = () => ctx.setTimeframe(tf);
             this.tfChips.append(b);
         }
         slot.append(this.tfChips);
         const listTitle = el('div', 'tr-section', 'Your watchlist');
-        const note = el('p', 'tr-note', 'Detected by the server on settled 4h and daily bars. This chart is view only: copy a shape to keep and edit it on your own chart.');
+        const note = el('p', 'tr-note', 'Detected by the server on settled 4h, daily and weekly bars. This chart is view only: copy a shape to keep and edit it on your own chart.');
         body.append(this.head, this.shapes, listTitle, this.list, note);
         this.renderList();
     }
@@ -208,9 +216,9 @@ class TrendsView {
             ico.alt = '';
             ico.src = symbolGlyph({ ticker: r.symbol, type: r.class, description: r.name });
             const name = el('span', 'tr-sym');
-            name.append(el('b', '', r.symbol), el('span', 'tr-sig', r.top ? `${SIGNAL_LABEL[r.top.kind]} · ${TF_LABEL[r.top.tf]}` : r.D || r.h4 ? 'No signal' : 'Not read yet'));
+            name.append(el('b', '', r.symbol), el('span', 'tr-sig', r.top ? `${SIGNAL_LABEL[r.top.kind]} · ${TF_LABEL[r.top.tf]}` : r.W || r.D || r.h4 ? 'No signal' : 'Not read yet'));
             const trends = el('span', 'tr-trends');
-            for (const [tf, b] of [['240', r.h4], ['D', r.D]] as const) trends.append(this.trendTag(tf, b?.trend ?? null));
+            for (const [tf, b] of [['240', r.h4], ['D', r.D], ['W', r.W]] as const) trends.append(this.trendTag(tf, b?.trend ?? null));
             row.append(ico, name, trends);
             row.onclick = () => this.ws.active.setSymbol(r.symbol);
             this.list.append(row);
@@ -251,7 +259,7 @@ class TrendsView {
         this.current = reads;
         const key = `${reads.symbol}|${Object.values(reads.reads).map((d) => d?.asOf).join(',')}`;
         if (this.applied !== key) {
-            const shapes = [...(reads.reads.D?.shapes ?? []), ...(reads.reads['240']?.shapes ?? [])];
+            const shapes = [...(reads.reads.W?.shapes ?? []), ...(reads.reads.D?.shapes ?? []), ...(reads.reads['240']?.shapes ?? [])];
             const doc: DrawingsDocument = { version: 1, drawings: shapes.map((s, i) => toDrawing(s, i + 1)) };
             this.ws.active.chart.drawings.fromJSON(doc);
             this.applied = key;
@@ -260,7 +268,7 @@ class TrendsView {
     }
 
     syncChips(tf: string): void {
-        const band: Tf = tf === 'D' || tf === 'W' || tf === 'M' ? 'D' : '240';
+        const band = bandOf(tf);
         for (const b of this.tfChips.querySelectorAll<HTMLButtonElement>('button')) b.classList.toggle('on', b.dataset.tf === band);
     }
 
@@ -269,7 +277,7 @@ class TrendsView {
         const r = this.current;
         if (!r) return;
         const tf = this.ws.active.timeframe;
-        const band: Tf = tf === 'D' || tf === 'W' || tf === 'M' ? 'D' : '240';
+        const band = bandOf(tf);
         this.syncChips(tf);
         const d = r.reads[band];
         const head = el('div', 'tr-sym-head');
@@ -300,7 +308,7 @@ class TrendsView {
             const text = el('button', 'tr-shape-text');
             text.type = 'button';
             text.title = 'Show it on the chart';
-            text.append(el('span', 'tr-shape-title', shapeTitle(s)), el('span', 'tr-shape-meta', `${s.touches} touches · score ${s.score} · ${s.status}${s.confluence ? ' · both timeframes' : ''}`));
+            text.append(el('span', 'tr-shape-title', shapeTitle(s)), el('span', 'tr-shape-meta', `${s.touches} touches · score ${s.score} · ${s.status}${s.confluence ? ' · multi-timeframe' : ''}`));
             text.onclick = () => this.ws.active.chart.drawings.select(`${AUTO}${s.id}`);
             const done = this.copied.has(`${r.symbol}|${s.id}`);
             const btn = el('button', `tr-copy${done ? ' done' : ''}`, done ? 'Copied' : 'Copy');

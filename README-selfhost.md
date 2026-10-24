@@ -41,8 +41,9 @@ Things to know:
 - Option prices on the Basic plan come from Alpaca's indicative feed: derived from the
   exchange quotes, with trades delayed 15 minutes. Open interest is Alpaca's daily figure.
   Each watched stock costs about three requests a day, read once after the close.
-- The **Trends** page reads only the cached 4h and daily bars, so it costs no provider
-  requests.
+- The **Trends** page reads only the cached 4h, daily and weekly bars, so it costs no
+  provider requests of its own. The prefetch keeps every watched symbol's weekly bars
+  cached for it, one more request per symbol and pass.
 - The default watchlist and the symbol mapping live in [`app/config/tickers.json`](app/config/tickers.json).
   Add any instrument the sources carry, then restart the container.
 

@@ -24,15 +24,29 @@ function fixture(name: string): OHLCV[] {
     }));
 }
 
+/** Daily bars rolled up into Monday-based weeks. */
+function weekly(days: OHLCV[]): OHLCV[] {
+    const weeks = new Map<number, OHLCV>();
+    for (const b of days) {
+        const day = Math.floor(b.time / 86_400_000);
+        const start = (day - ((day + 3) % 7)) * 86_400_000;
+        const w = weeks.get(start);
+        if (!w) weeks.set(start, { ...b, time: start });
+        else Object.assign(w, { high: Math.max(w.high, b.high), low: Math.min(w.low, b.low), close: b.close, volume: (w.volume ?? 0) + (b.volume ?? 0) });
+    }
+    return [...weeks.values()];
+}
+
 function world() {
     const calls: string[] = [];
-    const series: Record<string, OHLCV[]> = { D: fixture('SPY-D'), '240': fixture('SPY-240') };
+    const daily = fixture('SPY-D');
+    const series: Record<string, OHLCV[]> = { W: weekly(daily), D: daily, '240': fixture('SPY-240') };
     const bridge: Bridge = {
         id: 'yahoo',
         pollMs: 60_000,
         supports: () => true,
         async getBars(ticker, tf, req) {
-            const key = tf.unit === 'day' ? 'D' : '240';
+            const key = tf.unit === 'day' ? 'D' : tf.unit === 'week' ? 'W' : '240';
             calls.push(`${ticker} ${key}`);
             const bars = series[key]!;
             return req.limit ? bars.slice(-req.limit) : bars;
@@ -60,8 +74,9 @@ describe('trend reads', () => {
         const { calls, trends } = world();
         expect(trends.reads('IDX')).toEqual({});
         const reads = await trends.readNow('IDX');
-        expect(calls.sort()).toEqual(['IDX 240', 'IDX D']);
+        expect(calls.sort()).toEqual(['IDX 240', 'IDX D', 'IDX W']);
         expect(reads.D?.shapes.length).toBeGreaterThan(0);
+        expect(reads.W?.shapes.length).toBeGreaterThan(0);
         expect(reads['240']?.trend.state).toBe('range');
         // Daily and 4h levels that overlap are marked on both.
         expect(reads.D!.shapes.some((s) => s.confluence)).toBe(true);
@@ -70,7 +85,7 @@ describe('trend reads', () => {
 
     it('reads a stock from its extended-hours bars when only those are cached', async () => {
         const { trends, cached } = world();
-        for (const tf of ['D', '240']) await cached.bars('STK', tf, { limit: 1000, session: 'extended' });
+        for (const tf of ['D', '240', 'W']) await cached.bars('STK', tf, { limit: 1000, session: 'extended' });
         expect(cached.store.series('STK|D|regular')).toBeUndefined();
         expect(trends.refresh('STK')).toBe(true);
         expect(trends.reads('STK').D?.shapes.length).toBeGreaterThan(0);

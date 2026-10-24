@@ -64,11 +64,11 @@ function world(opts: { onCall?: (n: number) => void; jobs?: BackgroundJob[] } = 
 }
 
 describe('collectTargets', () => {
-    it('warms the layout chart first, then the watchlist at 4h and Daily', () => {
+    it('warms the layout chart first, then the watchlist at 4h, Daily and Weekly', () => {
         const { db, cached } = world();
         const plan = collectTargets(db, cached.market.catalog, OPEN);
         expect(plan.targets[0]).toMatchObject({ symbol: 'IDX', tf: '5', limit: 300, layout: true });
-        expect(plan.targets.map((t) => `${t.symbol}|${t.tf}`).sort()).toEqual(['ALT|240', 'ALT|D', 'IDX|240', 'IDX|5', 'IDX|D']);
+        expect(plan.targets.map((t) => `${t.symbol}|${t.tf}`).sort()).toEqual(['ALT|240', 'ALT|D', 'ALT|W', 'IDX|240', 'IDX|5', 'IDX|D', 'IDX|W']);
         expect([...plan.watched.keys()].sort()).toEqual(['ALT', 'IDX']);
     });
 
@@ -91,7 +91,7 @@ describe('collectTargets', () => {
         const { db, cached } = world();
         expect(collectTargets(db, cached.market.catalog, OPEN + 15 * 86_400_000).targets).toHaveLength(0);
         db.prepare("INSERT INTO sessions (id_hash, user_id, csrf, created_at, expires_at, last_seen) VALUES ('s', 1, 'c', 0, 0, ?)").run(OPEN + 10 * 86_400_000);
-        expect(collectTargets(db, cached.market.catalog, OPEN + 15 * 86_400_000).targets).toHaveLength(5);
+        expect(collectTargets(db, cached.market.catalog, OPEN + 15 * 86_400_000).targets).toHaveLength(7);
     });
 });
 
@@ -179,8 +179,8 @@ describe('CacheWarmer', () => {
         for (let i = 0; i < 5; i++) await warmer.tick(); // one due pass per round
         expect(calls).toHaveLength(0);
         const close = store.runs().find((r) => r.kind === 'close');
-        // All five chart targets skipped; only the (empty-handed) quote step ran.
-        expect(close).toMatchObject({ status: 'done', skipped: 5, failed: 0 });
+        // All seven chart targets skipped; only the (empty-handed) quote step ran.
+        expect(close).toMatchObject({ status: 'done', skipped: 7, failed: 0 });
     });
 });
 

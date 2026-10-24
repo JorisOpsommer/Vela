@@ -1,6 +1,6 @@
 // What the cache warmer prefetches: for every active account (see the userbase), the
-// charts in its saved layout, its watchlist at 4h and Daily, and the symbols it spent the
-// most time on at 15m and 1h. The server reads a document the browser owns (the
+// charts in its saved layout, its watchlist at 4h, Daily and Weekly, and the symbols it
+// spent the most time on at 15m and 1h. The server reads a document the browser owns (the
 // `workspace` storage key) — its shape is parsed defensively here, in one place, so a
 // format change breaks only this.
 import type { Db } from '../db';
@@ -39,7 +39,7 @@ export interface WarmPlan {
 
 const DEFAULT_LIMIT = 1_000;
 /** Every watched symbol is warmed at these. */
-export const WARM_TIMEFRAMES = ['240', 'D'];
+export const WARM_TIMEFRAMES = ['240', 'D', 'W'];
 /** An account's most active symbols are also warmed at these. */
 export const INTRADAY_TIMEFRAMES = ['15', '60'];
 export const TOP_SYMBOLS = 10;

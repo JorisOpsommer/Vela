@@ -1,4 +1,4 @@
-// Trend detection on one series (4h or Daily), read the way a trader marks up a chart:
+// Trend detection on one series (4h, Daily or Weekly), read the way a trader marks up a chart:
 //   1. swings — the turning points that matter, sized by the market's own volatility (ATR);
 //   2. support and resistance — price areas where several swings turned, scored by how many
 //      times, how hard price bounced, how recently, and how rarely it sliced through;
@@ -9,7 +9,7 @@
 // Pure functions of settled bars: the same bars always give the same shapes.
 import type { OHLCV } from '../market/types';
 
-export type TrendTf = '240' | 'D';
+export type TrendTf = '240' | 'D' | 'W';
 export type ShapeKind = 'support' | 'resistance' | 'trendline-up' | 'trendline-down';
 export type ShapeStatus = 'holding' | 'testing' | 'broken';
 
@@ -81,14 +81,16 @@ interface Params {
     halfLife: number;
     /** Levels farther than this fraction from the close are left out. */
     maxDistance: number;
+    /** Fewer settled bars than this read nothing. */
+    minBars: number;
 }
 
 const PARAMS: Record<TrendTf, Params> = {
-    D: { swingAtr: 2.2, fractal: 3, lookback: 500, halfLife: 160, maxDistance: 0.3 },
-    '240': { swingAtr: 2.2, fractal: 4, lookback: 330, halfLife: 140, maxDistance: 0.15 },
+    W: { swingAtr: 2, fractal: 2, lookback: 400, halfLife: 120, maxDistance: 0.5, minBars: 80 },
+    D: { swingAtr: 2.2, fractal: 3, lookback: 500, halfLife: 160, maxDistance: 0.3, minBars: 120 },
+    '240': { swingAtr: 2.2, fractal: 4, lookback: 330, halfLife: 140, maxDistance: 0.15, minBars: 120 },
 };
 const ATR_LEN = 14;
-const MIN_BARS = 120;
 const MAX_ZONES_PER_SIDE = 3;
 const MAX_LINES_PER_SIDE = 2;
 /** Price within this many ATRs of a level counts as testing it. */
@@ -440,8 +442,8 @@ const round = (v: number) => Math.round(v * 10000) / 10000;
 
 /** Detect levels, lines, trend and signals on settled bars (oldest first). Null when the history is too short. */
 export function detect(bars: readonly OHLCV[], tf: TrendTf): Detection | null {
-    if (bars.length < MIN_BARS) return null;
     const p = PARAMS[tf];
+    if (bars.length < p.minBars) return null;
     const atr = atrSeries(bars);
     const last = bars.length - 1;
     const atrNow = atr[last]!;

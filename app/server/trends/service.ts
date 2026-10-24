@@ -1,4 +1,4 @@
-// Trend reads per symbol: detected on the cached 4h and Daily bars (settled bars only),
+// Trend reads per symbol: detected on the cached 4h, Daily and Weekly bars (settled bars only),
 // stored with the detector version and the newest bar they used, so a read is redone only
 // when a new bar settles or the detector changes. A symbol with nothing cached is loaded
 // through the cache on demand.
@@ -9,7 +9,7 @@ import { detect, markConfluence, type Detection, type TrendTf } from './detect';
 
 /** Bump when the detector's output changes: every stored read is redone on its next pass. */
 export const DETECTOR_VERSION = 1;
-export const TREND_TIMEFRAMES: readonly TrendTf[] = ['240', 'D'];
+export const TREND_TIMEFRAMES: readonly TrendTf[] = ['240', 'D', 'W'];
 const DEPTH = 1_000;
 
 export type TrendReads = Partial<Record<TrendTf, Detection>>;
@@ -36,7 +36,7 @@ export class TrendsService {
     }
 
     /**
-     * Detect `symbol` on both timeframes from the cache, when a new bar settled or the
+     * Detect `symbol` on every timeframe from the cache, when a new bar settled or the
      * detector changed since the stored read. Returns whether anything was redone.
      */
     refresh(symbol: string): boolean {
@@ -53,6 +53,7 @@ export class TrendsService {
             const d = detect(bars[tf], tf);
             if (d) reads[tf] = d;
         }
+        markConfluence(reads.W ?? null, reads.D ?? null);
         markConfluence(reads.D ?? null, reads['240'] ?? null);
         const put = this.db.prepare(
             'INSERT INTO trend_reads (symbol, tf, version, as_of, computed_at, read) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(symbol, tf) DO UPDATE SET version = excluded.version, as_of = excluded.as_of, computed_at = excluded.computed_at, read = excluded.read',
