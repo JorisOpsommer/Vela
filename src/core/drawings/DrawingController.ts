@@ -31,6 +31,25 @@ function factoryDefaults(d: Drawing): DrawingToolDefaults | undefined {
 }
 
 /** Optional seed for a programmatic {@link DrawingController.add}. */
+/**
+ * A host action on the selection's toolbar — copy to another chart, send to a list, open a
+ * detail view. `when` decides from the selected drawings whether it shows; `run` gets them
+ * as plain records at click time.
+ */
+export interface DrawingSelectionAction {
+    /** Stable id — a later list with the same id replaces it. */
+    id: string;
+    /** Tooltip and accessible name. */
+    label: string;
+    /** Icon id from the icon registry (`registerIcon`); absent = the label as text. */
+    icon?: string;
+    when?(drawings: readonly SerializedDrawing[]): boolean;
+    run(drawings: readonly SerializedDrawing[]): void;
+}
+
+/** Intents a view-only chart refuses: every one that would draw, change or remove a drawing. */
+const READ_ONLY_REFUSED = new Set<DrawingIntent['kind']>(['create', 'edit', 'edit-many', 'delete', 'reorder', 'template-save', 'template-remove', 'undo', 'redo', 'duplicate', 'clone', 'paste']);
+
 export interface AddInit {
     paneId?: string;
     anchors?: SerializedDrawing['anchors'];
@@ -79,6 +98,9 @@ export class DrawingController {
     private readonly autoLockMs: number;
     /** One pending idle lock per drawing. Any touch restarts it; a selected drawing has none. */
     private readonly idleLocks = new Map<string, ReturnType<typeof setTimeout>>();
+    /** View-only: the user selects, the host alone draws and changes. */
+    private readOnly: boolean;
+    private selectionActions: DrawingSelectionAction[] = [];
 
     constructor(
         renderer: IChartRenderer,
@@ -90,7 +112,9 @@ export class DrawingController {
         this.port = this.enabled ? renderer.userDrawingsPort! : null;
         // On by default; `drawings: false` or `autoLock: false` turns it off.
         const autoLock = option === false ? false : typeof option === 'object' ? option.autoLock : undefined;
-        this.autoLockMs = autoLock === false ? 0 : (autoLock ?? DEFAULT_AUTO_LOCK_MS);
+        this.readOnly = typeof option === 'object' && option.readOnly === true;
+        // Nothing to protect on a view-only chart, and an idle lock would be an edit the user never made.
+        this.autoLockMs = autoLock === false || this.readOnly ? 0 : (autoLock ?? DEFAULT_AUTO_LOCK_MS);
         // Every edit, creation and removal — API calls, renderer gestures, undo — is a touch.
         this.subs.push(this.events.on('drawing:created', ({ id }) => this.touchIdle([id])));
         this.subs.push(this.events.on('drawing:edited', ({ id, auto }) => { if (!auto) this.touchIdle([id]); }));
@@ -100,6 +124,7 @@ export class DrawingController {
             this.port.setToolbar(definition);
             this.port.showToolbar(visible);
             if (seriesGateway) this.port.setSeriesGateway?.(seriesGateway);
+            if (this.readOnly) this.port.setReadOnly?.(true);
             this.subs.push(this.port.onDrawingIntent((i) => this.onIntent(i)));
             this.subs.push(this.store.onChange(() => this.sync()));
         }
@@ -113,6 +138,7 @@ export class DrawingController {
     // ── tool / toolbar control ──
     setTool(type: DrawingTypeKey | null): void {
         if (!this.port) return;
+        if (this.readOnly && type !== null) return;
         const changed = type !== this.activeTool;
         this.activeTool = type;
         // Seed the renderer's placement preview with the tool's remembered settings so the
@@ -298,6 +324,35 @@ export class DrawingController {
         this.port?.setExternalGhost?.(doc);
     }
 
+    /** Turn view-only mode on or off. On: any armed tool disarms and the toolbar hides. */
+    setReadOnly(on: boolean): void {
+        if (on === this.readOnly) return;
+        this.readOnly = on;
+        if (on) {
+            this.setTool(null);
+            this.port?.showToolbar(false);
+        }
+        this.port?.setReadOnly?.(on);
+    }
+
+    isReadOnly(): boolean {
+        return this.readOnly;
+    }
+
+    /** The host's actions for the selection's toolbar; replaces the previous list. */
+    setSelectionActions(actions: readonly DrawingSelectionAction[]): void {
+        this.selectionActions = [...actions];
+        this.pushSelectionActions();
+    }
+
+    /** The actions that apply to the current selection, as the renderer shows them. */
+    private pushSelectionActions(): void {
+        if (!this.port?.setSelectionActions) return;
+        const docs = this.resolve(this.selectedIds).map((d) => d.serialize());
+        const views = docs.length === 0 ? [] : this.selectionActions.filter((a) => !a.when || a.when(docs)).map((a) => ({ id: a.id, label: a.label, ...(a.icon ? { icon: a.icon } : {}) }));
+        this.port.setSelectionActions(views);
+    }
+
     /** Push per-tool shortcut hints (pre-formatted display strings) to the toolbar flyouts. */
     setToolShortcuts(map: Readonly<Partial<Record<DrawingTypeKey, string>>>): void {
         this.port?.setToolShortcuts?.(map);
@@ -428,22 +483,25 @@ export class DrawingController {
     }
 
     // ── undo / redo (core-owned; works even without renderer support) ──
+    // A view-only chart has no user edits to step through: its history is the host's own adds.
     undo(): void {
+        if (this.readOnly) return;
         const next = this.history.undo(this.store.serialize());
         if (next) this.restoreSnapshot(next);
     }
 
     redo(): void {
+        if (this.readOnly) return;
         const next = this.history.redo(this.store.serialize());
         if (next) this.restoreSnapshot(next);
     }
 
     canUndo(): boolean {
-        return this.history.canUndo();
+        return !this.readOnly && this.history.canUndo();
     }
 
     canRedo(): boolean {
-        return this.history.canRedo();
+        return !this.readOnly && this.history.canRedo();
     }
 
     // ── clone / clipboard ──
@@ -549,6 +607,8 @@ export class DrawingController {
 
     /** Push the selection to the renderer and announce it (primary + the full list). */
     private announceSelection(): void {
+        // The actions first: the renderer builds the selection's toolbar from them.
+        this.pushSelectionActions();
         this.port?.setSelection(this.selectedIds);
         this.events.emit('drawing:selected', { id: this.selectedIds[0] ?? null, ids: [...this.selectedIds] });
     }
@@ -633,6 +693,12 @@ export class DrawingController {
 
     /** Renderer gesture → authoritative store mutation + event. */
     private onIntent(i: DrawingIntent): void {
+        if (this.readOnly && (READ_ONLY_REFUSED.has(i.kind) || (i.kind === 'arm' && i.type !== null))) {
+            // Put the renderer back on the authoritative state it may have run ahead of.
+            if (i.kind === 'arm') this.port?.setActiveTool(null);
+            this.sync();
+            return;
+        }
         switch (i.kind) {
             case 'arm':
                 this.setTool(i.type); // toolbar click → core-authoritative tool state
@@ -741,6 +807,12 @@ export class DrawingController {
             case 'paste':
                 this.paste();
                 break;
+            case 'selection-action': {
+                const action = this.selectionActions.find((a) => a.id === i.id);
+                const docs = this.resolve(i.ids).map((d) => d.serialize());
+                if (action && docs.length > 0) action.run(docs);
+                break;
+            }
         }
     }
 }

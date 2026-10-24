@@ -152,7 +152,8 @@ export class ChartContextMenu {
         }
         const chart = this.chart;
         return bodyItems({
-            drawings: chart?.drawings.supported ? chart.drawings.all().length : 0,
+            // View-only drawings are not the user's to remove: the row stays, disabled.
+            drawings: chart?.drawings.supported && !chart.drawings.isReadOnly() ? chart.drawings.all().length : 0,
             indicators: chart?.indicators().length ?? 0,
         });
     }

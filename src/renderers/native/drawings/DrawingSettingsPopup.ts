@@ -52,6 +52,10 @@ export interface SettingsActions {
     applyToolSettings?(settings: DrawingToolDefaults): void;
     /** Show a style on the drawing without committing it; `null` puts the drawing back. */
     preview?(settings: DrawingToolDefaults | null): void;
+    /** The host's own actions for this selection, shown before the trailing controls. */
+    extras?: ReadonlyArray<{ id: string; label: string; icon?: string; run(): void }>;
+    /** View-only: the bar carries only the host's actions (none = no bar at all). */
+    readOnly?: boolean;
 }
 
 /** The value of a control whose drawings disagree — the bar shows it as "mixed" and the first
@@ -241,9 +245,21 @@ export class DrawingSettingsPopup {
 
         // Leading move handle — drag the whole toolbar anywhere on the chart.
         bar.appendChild(this.dragHandle());
+        const extras = (actions.extras ?? []).map((x) => this.extraButton(x));
 
-        // A locked drawing offers only its unlock control: protected until someone unlocks it.
+        if (actions.readOnly) {
+            if (extras.length === 0) {
+                this.current = null;
+                return;
+            }
+            bar.append(...extras);
+            this.mount(el, bar, anchor);
+            return;
+        }
+
+        // A locked drawing offers only its unlock control (and the host's actions): protected until someone unlocks it.
         if (every((d) => d.locked)) {
+            bar.append(...extras);
             bar.appendChild(this.toggle('Unlock', UNLOCK_ICON, true, (v) => actions.setLocked(v), LOCK_ICON));
             this.mount(el, bar, anchor);
             return;
@@ -394,8 +410,12 @@ export class DrawingSettingsPopup {
 
         // Trailing group: the settings wheel sits just left of the lock, and a kebab overflow
         // (z-order + reset) sits just right of delete. The settings panel edits one drawing (its
-        // points, levels, sizing) — it stays off a multi-selection.
+        // points, levels, sizing) — it stays off a multi-selection. The host's actions lead it.
         bar.appendChild(this.divider());
+        if (extras.length > 0) {
+            bar.append(...extras);
+            bar.appendChild(this.divider());
+        }
         if (!multi) bar.appendChild(this.iconBtn('Settings', GEAR_ICON, () => this.openPanel()));
         // Infinite: both ends run to the chart edges, so a box or line never needs extending by hand.
         if (paths.has('style.extendLeft') && paths.has('style.extendRight')) {
@@ -579,6 +599,23 @@ export class DrawingSettingsPopup {
         const b = this.base(tip);
         b.innerHTML = sized(icon);
         b.addEventListener('click', onClick);
+        return b;
+    }
+
+    /** A host action: its registered icon, or its label as text when it has none. */
+    private extraButton(x: { label: string; icon?: string; run(): void }): HTMLButtonElement {
+        const markup = x.icon ? icon(x.icon) : '';
+        if (markup) {
+            const b = this.iconBtn(x.label, markup, () => x.run());
+            b.setAttribute('aria-label', x.label);
+            return b;
+        }
+        const b = this.base(x.label);
+        b.textContent = x.label;
+        b.style.width = 'auto';
+        b.style.padding = '0 8px';
+        b.style.fontWeight = '600';
+        b.addEventListener('click', () => x.run());
         return b;
     }
 

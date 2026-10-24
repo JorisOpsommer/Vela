@@ -313,6 +313,8 @@ interface Pass {
     /** Whether drawings share the series' draw-order space — a drawing can then take any slot
      *  in its pane's stack, under the candles or between two indicators. */
     interleave: boolean;
+    /** View-only drawings: their rows list and select, but offer nothing that changes them. */
+    viewOnly: boolean;
     panes: TreePane[];
 }
 
@@ -477,12 +479,12 @@ export class ObjectTree extends SidePanel {
         const byId = new Map(chart.indicators().map((h) => [h.id, h]));
         const snap = this.snapshot(chart, (id) => byId.get(id));
         const panes = buildTree(snap);
-        const pass: Pass = { chart, handle: (id) => byId.get(id), stackable: snap.stackable, repanable: chart.panes.supported, interleave: snap.interleave, panes };
+        const pass: Pass = { chart, handle: (id) => byId.get(id), stackable: snap.stackable, repanable: chart.panes.supported, interleave: snap.interleave, viewOnly: chart.drawings.isReadOnly(), panes };
         this.pass = pass;
         this.body.replaceChildren();
 
         const doc = this.el.ownerDocument;
-        this.body.appendChild(this.selectionBar(pass));
+        if (!pass.viewOnly) this.body.appendChild(this.selectionBar(pass));
         panes.forEach((pane, i) => {
             // Never a band above the first block — the price pane stays pinned to the top.
             if (i > 0) this.body.appendChild(this.gapEl(pass, panes[i - 1]!.id, pane.id));
@@ -690,7 +692,7 @@ export class ObjectTree extends SidePanel {
         const members = pass.chart.drawings.all().filter((d) => g.ids.includes(d.id));
         const { allHidden, allLocked } = groupState(members);
         const ids = [...g.ids];
-        const el = this.row(iconEl(folded ? 'chevron-right' : 'chevron-down', doc), g.name, !allHidden, [
+        const el = this.row(iconEl(folded ? 'chevron-right' : 'chevron-down', doc), g.name, !allHidden, pass.viewOnly ? [] : [
             {
                 icon: allLocked ? 'lock' : 'unlock',
                 title: allLocked ? 'Unlock all' : 'Lock all',
@@ -757,7 +759,7 @@ export class ObjectTree extends SidePanel {
         } else {
             icon = iconEl('pen', doc);
         }
-        const el = this.row(icon, drawingLabel(d), d.visible, [
+        const el = this.row(icon, drawingLabel(d), d.visible, pass.viewOnly ? [] : [
             {
                 icon: d.locked ? 'lock' : 'unlock',
                 title: d.locked ? 'Unlock' : 'Lock',
@@ -788,8 +790,10 @@ export class ObjectTree extends SidePanel {
         el.dataset.rowKind = 'drawing';
         el.dataset.id = d.id;
         el.dataset.pane = d.paneId;
-        el.dataset.drag = '1';
-        el.title = 'Drag to restack, or onto another pane to move it there';
+        if (!pass.viewOnly) {
+            el.dataset.drag = '1';
+            el.title = 'Drag to restack, or onto another pane to move it there';
+        }
         if (inGroup) el.classList.add('vela-ot-subrow');
         if (this.selectedDrawings.has(d.id)) el.dataset.selected = '1';
         if (this.picked.has(d.id)) el.dataset.picked = '1';
@@ -935,6 +939,7 @@ export class ObjectTree extends SidePanel {
         if (target.closest('.vela-ot-rename')) return;
         const kind = rowEl.dataset.rowKind;
         if (kind !== 'price' && kind !== 'indicator' && kind !== 'drawing' && kind !== 'group') return;
+        if (this.pass?.viewOnly && (kind === 'drawing' || kind === 'group')) return;
         const win = this.el.ownerDocument.defaultView;
         if (!win) return;
         const drag: DragSession = {
@@ -1249,10 +1254,12 @@ export class ObjectTree extends SidePanel {
                 return row ? this.indicatorMenu(b, pass, row, paneId) : [];
             }
             case 'drawing': {
+                if (pass.viewOnly) return [];
                 const d = id === undefined ? undefined : pass.chart.drawings.all().find((x) => x.id === id);
                 return d ? this.drawingMenu(b, pass, d) : [];
             }
             case 'group': {
+                if (pass.viewOnly) return [];
                 const g = id === undefined ? undefined : this.groups.find((x) => x.id === id);
                 return g ? this.groupMenu(b, pass, g) : [];
             }

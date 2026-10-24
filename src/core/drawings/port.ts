@@ -58,7 +58,22 @@ export type DrawingIntent =
      *  One undo step. */
     | { kind: 'clone'; docs: SerializedDrawing[] }
     | { kind: 'copy'; ids: string[] }
-    | { kind: 'paste' };
+    | { kind: 'paste' }
+    /** A host action on the selection's toolbar was clicked (see `setSelectionActions`). */
+    | { kind: 'selection-action'; id: string; ids: string[] };
+
+/**
+ * A host action as the renderer shows it on the selection's toolbar: plain data, the
+ * behavior stays in the core. Pushed for the CURRENT selection — only the actions that
+ * apply to it.
+ */
+export interface DrawingActionView {
+    id: string;
+    /** Tooltip and accessible name. */
+    label: string;
+    /** Icon id from the icon registry; absent = the label as text. */
+    icon?: string;
+}
 
 /**
  * The interactive user-drawings surface a renderer optionally implements. Present
@@ -107,6 +122,13 @@ export interface IDrawingsRendererPort {
     setSeriesGateway?(gateway: DrawingSeriesGateway): void;
     /** Open a drawing's settings popup (selecting it too) — the programmatic twin of a click on it. */
     openSettings(id: string): void;
+    /** View-only mode: the user may select drawings but not draw, move, restyle, delete or
+     *  unlock them. The core refuses those intents either way; this lets the renderer stop
+     *  offering them. Optional. */
+    setReadOnly?(on: boolean): void;
+    /** The host actions that apply to the current selection, for its toolbar (`[]` = none).
+     *  A click comes back as the `selection-action` intent. Optional. */
+    setSelectionActions?(actions: readonly DrawingActionView[]): void;
     /** Display another chart's in-progress placement as a GHOST at reduced opacity
      *  (`null` clears it) — the drawings-sync twin of `setExternalCrosshair`. Never a
      *  store drawing: no selection, no hit-testing, no persistence. Optional — a

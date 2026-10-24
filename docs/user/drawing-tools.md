@@ -397,6 +397,36 @@ chart.drawings.showToolbar(false);  // hide the toolbar (drawings still work fro
 See the [`chart.drawings` reference](./api-reference.md#chartdrawings-control-surface) for the full
 method list and which methods are gated by renderer support.
 
+### View-only drawings and your own toolbar buttons
+
+To show drawings people may look at but not change, for example levels your server
+computed, build the chart with `drawings: { readOnly: true }` or call
+`chart.drawings.setReadOnly(true)`. People can still click a drawing to select it, but they
+can't draw, move, restyle, delete or unlock anything, and undo does nothing. The drawing
+toolbar hides. Your own code keeps full control through `add`, `update`, `remove` and
+`fromJSON`. In a workspace or widget, pass `drawings: { readOnly: true }` when you build it:
+switched on later, the shared drawing toolbar stays on screen, though its tools no longer arm.
+
+Give the selected drawing's toolbar buttons of your own with `setSelectionActions`. On a
+view-only chart they are the only buttons it shows:
+
+```js
+chart.drawings.setSelectionActions([
+    {
+        id: 'copy',
+        label: 'Copy to my chart',
+        icon: 'copy', // an id from the icon registry; without one, the label shows as text
+        when: (drawings) => drawings.every((d) => d.type === 'box' || d.type === 'trendline'),
+        run: (drawings) => saveCopies(drawings),
+    },
+]);
+```
+
+`run` receives the selected drawings as plain records, the same shape `all()` returns. In a
+workspace or widget, register the action once with
+[`registerDrawingAction`](../contributing/plugin-sdk.md#drawing-actions--registerdrawingaction)
+and every chart gets it.
+
 ---
 
 ## Tool and mode state from code

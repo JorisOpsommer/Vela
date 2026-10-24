@@ -50,6 +50,10 @@ export type DrawingsOption =
            *  dragged or deleted by accident). Defaults to one minute; `false` turns it off.
            *  Touching a locked drawing shows its unlock control. */
           autoLock?: number | false;
+          /** View-only drawings: they can be selected (and carry the host's selection
+           *  actions) but not drawn, moved, restyled, deleted or unlocked by the user. The
+           *  toolbar is hidden. The host still adds and changes drawings through the API. */
+          readOnly?: boolean;
       };
 
 const FIBONACCI_TYPES: DrawingTypeKey[] = [
@@ -238,7 +242,7 @@ export function defaultToolbar(): ToolbarDefinition {
 export function buildToolbar(option: DrawingsOption | undefined): { definition: ToolbarDefinition; visible: boolean } {
     if (option === false) return { definition: defaultToolbar(), visible: false };
     if (option === undefined || option === true) return { definition: defaultToolbar(), visible: true };
-    const visible = option.toolbar ?? true;
+    const visible = option.readOnly ? false : (option.toolbar ?? true);
     if (option.groups) return { definition: resolveGroups(option.groups), visible };
     if (option.tools) return { definition: groupTools(option.tools), visible };
     return { definition: defaultToolbar(), visible };

@@ -459,6 +459,8 @@ can't paint drawings — `chart.drawings.supported` reports this), while the **m
 | `showToolbar(visible?)` | yes | Show/hide the on-chart toolbar. |
 | `setToolbar(option)` | yes | Reconfigure the toolbar groups/tools live. |
 | `setToolShortcuts(map)` | yes | Show per-tool shortcut hints in the toolbar flyouts — `{ trendline: 'Alt+T', … }`. Values are pre-formatted display strings: the host owns the keymap and the platform formatting. The widget/workspace push their own bindings automatically. |
+| `setReadOnly(on)` · `isReadOnly()` | no | View-only drawings: people can select them (and use the selection actions) but not draw, move, restyle, delete or unlock them; the toolbar hides, an armed tool disarms, and undo/redo do nothing. Your own `add`/`update`/`remove`/`fromJSON` calls keep working. Same as `drawings: { readOnly: true }`. In a workspace or widget, pass the option at construction: switched on later, the shared drawing toolbar stays on screen, though its tools no longer arm. |
+| `setSelectionActions(actions)` | no | Your own buttons on the toolbar of a selected drawing: `[{ id, label, icon?, when?(drawings), run(drawings) }]`. Each shows for the selections its `when` accepts; `run` receives the selected drawings as plain records. Replaces the previous list. In a workspace or widget, use `registerDrawingAction` instead. |
 | `add(type, init?)` | yes | Create a drawing from code; returns the `Drawing` (or `null` if unsupported). |
 | `remove(id)` | no | Delete a drawing. |
 | `update(id, patch)` | no | Apply a partial serialized record (for a custom settings UI). |

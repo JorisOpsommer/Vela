@@ -645,6 +645,35 @@ registerLegendAction({
 - The seam degrades gracefully: a custom renderer without `setLegendActions` simply never
   shows contributed legend actions (same rule as the sync ghost crosshair).
 
+## Drawing actions — `registerDrawingAction`
+
+A button on the toolbar of a **selected drawing** (one, or a whole multi-selection),
+before the drawing's own settings group. On a view-only chart
+(`drawings: { readOnly: true }`) these are the only buttons the toolbar shows. The classic
+use: copy computed levels from a view-only chart to the user's own chart.
+
+```ts
+import { registerDrawingAction, registerIcon } from '@luxalgo/vela/plugin';
+import { svg16 } from '@luxalgo/vela/ui';
+
+registerIcon('mytool.copy', svg16('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/>'));
+registerDrawingAction({
+    id: 'mytool.copy',
+    label: 'Copy to my chart',                          // tooltip and accessible name
+    icon: 'mytool.copy',                                // without one, the label shows as text
+    when: (drawings) => drawings.every((d) => d.type === 'box'),
+    run: (ctx, drawings) => myStore.save(ctx.symbol, drawings),
+});
+```
+
+- `drawings` are the selected drawings as plain `SerializedDrawing` records, read when the
+  toolbar opens (`when`) and at click time (`run`).
+- `run` receives a fresh `WidgetContext` each time, bound to the active chart.
+- Register at import time; after a late registration call `refreshActions()`, and every
+  chart picks it up for its next selection.
+- On a bare `Vela` chart, `chart.drawings.setSelectionActions([...])` is the same seam
+  without the registry.
+
 ## Legend callouts — `registerLegendCallout`
 
 A small tinted **callout bubble** with a centered icon, visible right of an

@@ -1,4 +1,4 @@
-import type { DrawingController, AddInit } from './drawings/DrawingController';
+import type { DrawingController, AddInit, DrawingSelectionAction } from './drawings/DrawingController';
 import type { Drawing, DrawingTypeKey, SerializedDrawing } from './drawings/Drawing';
 import type { DrawingsDocument } from './drawings/document';
 import type { SnapMode } from './drawings/geometry';
@@ -89,6 +89,31 @@ export class DrawingsControl {
         return this;
     }
 
+    /** View-only drawings (`true`): the user can select them — and use the actions from
+     *  {@link setSelectionActions} — but not draw, move, restyle, delete or unlock them; the
+     *  toolbar hides, any armed tool disarms, and undo/redo do nothing. Your own calls
+     *  (`add`, `update`, `remove`, `fromJSON`) keep working. The same as
+     *  `drawings: { readOnly: true }` at construction. */
+    setReadOnly(on: boolean): this {
+        this.ctrl.setReadOnly(on);
+        return this;
+    }
+
+    /** Whether the drawings are view-only (see {@link setReadOnly}). */
+    isReadOnly(): boolean {
+        return this.ctrl.isReadOnly();
+    }
+
+    /** Your own buttons on the toolbar of a selected drawing — "copy to my chart", "send
+     *  to a list". Each shows when its `when(drawings)` passes (always, without one) and its
+     *  `run(drawings)` receives the selected drawings as plain records. Replaces the previous
+     *  list; `[]` removes them. In a workspace or widget, `registerDrawingAction` from the
+     *  plugin SDK sets these for every chart. */
+    setSelectionActions(actions: readonly DrawingSelectionAction[]): this {
+        this.ctrl.setSelectionActions(actions);
+        return this;
+    }
+
     /** Display another chart's in-progress placement as a GHOST at reduced opacity
      *  (`null` clears it) — how a multi-chart host mirrors `drawing:draft` onto linked
      *  charts. Never a real drawing: no store entry, no selection, no persistence.
@@ -161,7 +186,7 @@ export class DrawingsControl {
     }
 
     // ── undo / redo (core-owned — work regardless of renderer support) ──
-    /** Revert the last edit. No-op when there is nothing to undo. */
+    /** Revert the last edit. No-op when there is nothing to undo, and on a view-only chart. */
     undo(): this {
         this.ctrl.undo();
         return this;

@@ -1,6 +1,7 @@
 import type { VelaTheme } from '../../../core/options';
 import type {
     Drawing,
+    DrawingActionView,
     DrawingIntent,
     DrawingMode,
     DrawingPoint,
@@ -21,7 +22,7 @@ import { withAlpha } from '../core/chartConfig';
 import { blendOver, splitColor } from '../../../ui/components/color-picker';
 import { DrawingPainter, handleIdsFor, type PaintTargets } from './DrawingPainter';
 import { DrawingInteraction } from './DrawingInteraction';
-import { DrawingSettingsPopup, type PopupAnchor } from './DrawingSettingsPopup';
+import { DrawingSettingsPopup, type PopupAnchor, type SettingsActions } from './DrawingSettingsPopup';
 import { DrawingToolbar, TOOLBAR_WIDTH, TOOLBAR_COLLAPSED_WIDTH } from './DrawingToolbar';
 import { MeasureOverlay } from './MeasureOverlay';
 import { topDrawingAt, deletableSelection, deleteTargets, HIT_TOLERANCE } from './DrawingHitTester';
@@ -150,6 +151,13 @@ export class UserDrawingController implements IDrawingsRendererPort {
      *  shrinking selection does with it. */
     private popupMulti = false;
     private readonly toolbar: DrawingToolbar;
+    /** View-only: every drawing is projected locked (so nothing drags, nudges, erases or
+     *  deletes) and the selection's bar offers only the host's actions. */
+    private readOnly = false;
+    /** The core's last snapshot, kept to re-project it when view-only mode changes. */
+    private docs: readonly SerializedDrawing[] = [];
+    /** The host actions for the current selection's bar (pushed by the core). */
+    private selectionActions: readonly DrawingActionView[] = [];
 
     constructor(
         private readonly toolbarHost: HTMLElement, // the left gutter (docked toolbar)
@@ -250,7 +258,9 @@ export class UserDrawingController implements IDrawingsRendererPort {
     }
 
     syncDrawings(docs: readonly SerializedDrawing[]): void {
+        this.docs = docs;
         this.drawings = docs.map((d) => deserializeDrawing(d)).filter((d): d is Drawing => d != null);
+        if (this.readOnly) for (const d of this.drawings) d.locked = true;
         // The edited drawing can vanish from under the editor (deleted, erased, undone) — take the
         // editor with it instead of leaving a live textarea over nothing.
         if (this.textEditor && !this.editedDrawing(this.textEditor.id)) this.closeTextEditor();
@@ -316,6 +326,26 @@ export class UserDrawingController implements IDrawingsRendererPort {
     /** Core push: every tool's saved styles — the settings panel's style menu reads them. */
     setToolTemplates(map: Readonly<Partial<Record<DrawingTypeKey, DrawingToolTemplate[]>>>): void {
         this.toolTemplates = map;
+    }
+
+    /** Core push: view-only mode on/off. */
+    setReadOnly(on: boolean): void {
+        if (on === this.readOnly) return;
+        this.readOnly = on;
+        this.closeTextEditor();
+        this.popup.close();
+        if (on && this.eraserMode) this.withModeIntent(() => this.exitEraser());
+        this.syncDrawings(this.docs);
+    }
+
+    /** Core push: the host actions that apply to the selection — the next bar shows them. */
+    setSelectionActions(actions: readonly DrawingActionView[]): void {
+        this.selectionActions = actions;
+    }
+
+    /** The host actions as bar buttons, each reporting a click on `ids`. */
+    private hostActions(ids: () => readonly string[]): NonNullable<SettingsActions['extras']> {
+        return this.selectionActions.map((a) => ({ ...a, run: () => this.emit({ kind: 'selection-action', id: a.id, ids: [...ids()] }) }));
     }
 
     /** Core push: per-tool shortcut hints (display strings) shown in the toolbar flyouts. */
@@ -615,6 +645,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
      * the edit.
      */
     private editTextInline(id: string): void {
+        if (this.readOnly) return;
         const d = this.editedDrawing(id);
         if (!d) return;
         this.closeTextEditor();
@@ -812,7 +843,8 @@ export class UserDrawingController implements IDrawingsRendererPort {
         }
         if (!hit) return false;
         if (this.popupMulti || !this.selectedIds.has(hit.id) || !this.popup.isOpen()) this.openSettingsById(hit.id, 0, 0);
-        this.popup.openPanel();
+        // A view-only drawing has nothing to set: the double-click only selects it.
+        if (!this.readOnly) this.popup.openPanel();
         return true;
     }
 
@@ -1148,6 +1180,8 @@ export class UserDrawingController implements IDrawingsRendererPort {
                 this.emitEdits(ds);
                 this.openSettingsForSelection(ids); // rebuild so the controls reflect the restored defaults
             },
+            extras: this.hostActions(() => live().map((d) => d.id)),
+            readOnly: this.readOnly,
             remove: () => {
                 // Locked members are protected: they stay behind (still selected) while the rest go.
                 const ids = live().filter((d) => !d.locked).map((d) => d.id);
@@ -1243,6 +1277,8 @@ export class UserDrawingController implements IDrawingsRendererPort {
                 } else return;
                 this.render();
             },
+            extras: this.hostActions(() => [id]),
+            readOnly: this.readOnly,
             remove: () => {
                 this.closeTextEditor(); // else the editor floats over the deleted label until it loses focus
                 this.popup.close();

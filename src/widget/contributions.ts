@@ -8,6 +8,7 @@ import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { SymbolDescriptor } from '../core/ports/DataProvider';
 import type { InputValue } from '../core/model/inputs';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
+import type { DrawingSelectionAction, SerializedDrawing } from '../core/drawings';
 import { TOPBAR_BUILTIN_IDS } from './topbar-composition';
 
 /** The runtime surface an action's `when`/`run` receives. */
@@ -403,6 +404,64 @@ export function legendActionsProviderFor(chart: Vela, context: () => WidgetConte
             .filter((d) => !d.when || d.when(info))
             .map((d) => ({ id: d.id, icon: d.icon, tooltip: d.tooltip, run: () => d.run(context(), infoOf(find() ?? handle)) }));
     };
+}
+
+// ── Drawing actions ────────────────────────────────────────────────────────────────
+
+/**
+ * A contributed DRAWING action: a button on the toolbar of a selected drawing (one, or a
+ * whole multi-selection), between the drawing's own controls and its settings group — the
+ * only controls a view-only chart shows (`drawings: { readOnly: true }`). `when` gates on
+ * the selected drawings; `run` receives the shell's {@link WidgetContext} and them, as
+ * plain records read at click time.
+ */
+export interface DrawingActionDescriptor {
+    /** Stable id — re-registering an id replaces it. */
+    id: string;
+    /** Tooltip and accessible name; the button's text when it has no icon. */
+    label: string;
+    /** Icon id from the `vela/ui` icon registry (register yours with `registerIcon`). */
+    icon?: string;
+    /** Sort key within the contributed group (ascending; default 0). */
+    order?: number;
+    /** Selection gate — omitted ⇒ shown for every selection. */
+    when?: (drawings: readonly SerializedDrawing[], ctx: WidgetContext) => boolean;
+    run(ctx: WidgetContext, drawings: readonly SerializedDrawing[]): void;
+}
+
+const drawingRegistry = new Map<string, DrawingActionDescriptor>();
+
+/** Register (or replace) a drawing action. Returns an unregister disposer. Charts built
+ *  before the registration pick it up on the shell's `refreshActions()`. */
+export function registerDrawingAction(desc: DrawingActionDescriptor): () => void {
+    drawingRegistry.set(desc.id, desc);
+    return () => {
+        if (drawingRegistry.get(desc.id) === desc) drawingRegistry.delete(desc.id);
+    };
+}
+
+export function unregisterDrawingAction(id: string): void {
+    drawingRegistry.delete(id);
+}
+
+/** Every registered drawing action, `order`-sorted (registration order breaks ties). */
+export function drawingActions(): DrawingActionDescriptor[] {
+    return [...drawingRegistry.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+/**
+ * What a shell hands to `chart.drawings.setSelectionActions`: every registered drawing
+ * action, its gate and `run` bound to a fresh context per call (never a cached one; the
+ * widget context rule). Both shells wire exactly this.
+ */
+export function drawingActionsFor(context: () => WidgetContext): DrawingSelectionAction[] {
+    return drawingActions().map((d) => ({
+        id: d.id,
+        label: d.label,
+        ...(d.icon ? { icon: d.icon } : {}),
+        when: (drawings) => !d.when || d.when(drawings, context()),
+        run: (drawings) => d.run(context(), drawings),
+    }));
 }
 
 // ── Legend callouts ────────────────────────────────────────────────────────────────

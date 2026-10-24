@@ -62,6 +62,8 @@ export type {
     DrawingIntent,
     DrawingMode,
     IDrawingsRendererPort,
+    DrawingActionView,
+    DrawingSelectionAction,
     DrawingSeriesBar,
     DrawingSeriesState,
     DrawingSeriesGateway,
