@@ -9,15 +9,19 @@ import type { ServerProvider } from './lib/server-provider';
 import { track } from './lib/tracker';
 import { symbolGlyph } from './lib/symbol-glyph';
 import { moveWatchSymbol, type WatchSlot } from './lib/watchlist-move';
+import { DEFAULT_TAB, settleTabs } from './lib/watchlist-tabs';
 
 export interface WatchGroup {
     name: string;
     symbols: string[];
     collapsed?: boolean;
+    /** The tab this group sits under. */
+    tab?: string;
 }
 
 interface WatchDoc {
     version: 1;
+    tabs: string[];
     groups: WatchGroup[];
 }
 
@@ -71,12 +75,18 @@ export function formatPrice(symbol: string, price: number): string {
 function parseDoc(raw: string | null): WatchDoc | null {
     if (!raw) return null;
     try {
-        const d = JSON.parse(raw) as WatchDoc;
+        const d = JSON.parse(raw) as Partial<WatchDoc> & { version?: unknown };
         if (d?.version !== 1 || !Array.isArray(d.groups)) return null;
         const groups = d.groups
             .filter((g) => g && typeof g.name === 'string' && Array.isArray(g.symbols))
-            .map((g) => ({ name: g.name.slice(0, 60), symbols: g.symbols.filter((s) => typeof s === 'string').map(bareSymbol).slice(0, 200), collapsed: g.collapsed === true }));
-        return { version: 1, groups };
+            .map((g) => ({
+                name: g.name.slice(0, 60),
+                symbols: g.symbols.filter((s) => typeof s === 'string').map(bareSymbol).slice(0, 200),
+                collapsed: g.collapsed === true,
+                tab: typeof g.tab === 'string' ? g.tab.slice(0, 60) : undefined,
+            }));
+        const tabs = Array.isArray(d.tabs) ? d.tabs.filter((t): t is string => typeof t === 'string').map((t) => t.slice(0, 60)) : [];
+        return { version: 1, ...settleTabs({ tabs, groups }) };
     } catch {
         return null;
     }
@@ -108,10 +118,13 @@ export function watchlistPanel(storage: ServerStorage, provider: ServerProvider)
 }
 
 class WatchlistView {
-    private doc: WatchDoc = { version: 1, groups: [] };
+    private doc: WatchDoc = { version: 1, tabs: [DEFAULT_TAB], groups: [] };
+    /** The tab on show. Kept per viewer, so a reload opens the first tab again. */
+    private activeTab = DEFAULT_TAB;
     private quotes = new Map<string, QuoteRow>();
     private names = new Map<string, SymbolDescriptor>();
     private timer: ReturnType<typeof setInterval> | null = null;
+    private readonly tabBar = el('div', 'wl-tabs');
     private readonly list = el('div', 'wl-list');
     private readonly search = el('input', 'wl-search');
     private readonly suggest = el('div', 'wl-suggest');
@@ -172,7 +185,7 @@ class WatchlistView {
         this.suggest.hidden = true;
         addRow.append(this.search, this.groupSelect, this.suggest);
 
-        body.append(addRow, this.list);
+        body.append(this.tabBar, addRow, this.list);
         void this.load();
         void provider.listSymbols().then((rows) => {
             for (const r of rows) this.names.set(r.ticker.toUpperCase(), r);
@@ -198,6 +211,7 @@ class WatchlistView {
         let doc = parseDoc((await this.storage.get(STORAGE_KEY)) as string | null);
         if (!doc) doc = await this.defaults();
         this.doc = doc;
+        this.activeTab = doc.tabs[0]!;
         this.render();
         void this.refresh();
         this.timer = setInterval(() => {
@@ -208,7 +222,7 @@ class WatchlistView {
 
     private async defaults(): Promise<WatchDoc> {
         const r = await api<{ groups: WatchGroup[] }>('/api/watchlist/defaults');
-        return { version: 1, groups: r.groups.map((g) => ({ name: g.name, symbols: g.symbols })) };
+        return { version: 1, ...settleTabs({ groups: r.groups.map((g) => ({ name: g.name, symbols: g.symbols })) }) };
     }
 
     private save(): void {
@@ -298,16 +312,50 @@ class WatchlistView {
         for (const row of this.list.querySelectorAll<HTMLElement>('.wl-row')) row.classList.toggle('active', row.dataset.symbol === active);
     }
 
+    /** The tab strip: one button per tab, then rename and (when another tab is left) delete for the one on show. */
+    private renderTabs(): void {
+        const tabs = this.doc.tabs.map((name) => {
+            const on = name === this.activeTab;
+            const btn = el('button', 'wl-tab' + (on ? ' on' : ''), name);
+            btn.dataset.tab = name;
+            btn.setAttribute('aria-pressed', String(on));
+            btn.onclick = () => {
+                this.activeTab = name;
+                this.render();
+            };
+            return btn;
+        });
+        const add = el('button', 'wl-icon-btn', '＋');
+        add.title = 'New tab';
+        add.onclick = () => this.newTab();
+        const actions = el('span', 'wl-tab-actions');
+        const ren = el('button', 'wl-mini', '✎');
+        ren.title = 'Rename tab';
+        ren.onclick = () => this.renameTab();
+        actions.append(ren);
+        if (this.doc.tabs.length > 1) {
+            const del = el('button', 'wl-mini', '✕');
+            del.title = 'Delete tab';
+            del.onclick = () => this.deleteTab();
+            actions.append(del);
+        }
+        this.tabBar.replaceChildren(...tabs, add, actions);
+    }
+
     private render(): void {
         if (this.drag) {
             this.renderPending = true;
             return;
         }
         this.renderPending = false;
-        this.groupSelect.replaceChildren(...this.doc.groups.map((g, i) => Object.assign(el('option', '', g.name), { value: String(i) })));
+        this.renderTabs();
+        // Group indexes stay global (into doc.groups) so a row or drop knows its group in any tab.
+        this.groupSelect.replaceChildren(...this.doc.groups.flatMap((g, i) => (g.tab === this.activeTab ? [Object.assign(el('option', '', g.name), { value: String(i) })] : [])));
         this.groupSelect.title = 'Group to add to';
         const frag = document.createDocumentFragment();
+        if (!this.doc.groups.some((g) => g.tab === this.activeTab)) frag.append(el('div', 'wl-empty', 'No groups in this tab yet.'));
         this.doc.groups.forEach((g, gi) => {
+            if (g.tab !== this.activeTab) return;
             const head = el('div', 'wl-group');
             head.dataset.group = String(gi);
             const caret = el('span', 'wl-caret', g.collapsed ? '▸' : '▾');
@@ -573,8 +621,11 @@ class WatchlistView {
     private add(raw: string): void {
         const sym = bareSymbol(raw);
         if (!sym || !/^[A-Z0-9.^=/-]{1,20}$/.test(sym)) return;
-        if (this.doc.groups.length === 0) this.doc.groups.push({ name: 'Watchlist', symbols: [] });
-        const g = this.doc.groups[Number(this.groupSelect.value) || 0] ?? this.doc.groups[0]!;
+        let g = this.groupSelect.value ? this.doc.groups[Number(this.groupSelect.value)] : undefined;
+        if (!g) {
+            g = { name: this.activeTab, symbols: [], tab: this.activeTab };
+            this.doc.groups.push(g);
+        }
         if (!g.symbols.includes(sym)) {
             g.symbols.push(sym);
             track('wl', sym);
@@ -590,15 +641,53 @@ class WatchlistView {
     private newGroup(): void {
         const n = prompt('New group name')?.trim();
         if (!n) return;
-        this.doc.groups.push({ name: n.slice(0, 60), symbols: [] });
+        this.doc.groups.push({ name: n.slice(0, 60), symbols: [], tab: this.activeTab });
         this.save();
         this.render();
         this.groupSelect.value = String(this.doc.groups.length - 1);
     }
 
+    private newTab(): void {
+        const n = prompt('New tab name')?.trim().slice(0, 60);
+        if (!n) return;
+        if (!this.doc.tabs.includes(n)) this.doc.tabs.push(n);
+        this.activeTab = n;
+        this.save();
+        this.render();
+    }
+
+    private renameTab(): void {
+        const from = this.activeTab;
+        const to = prompt('Tab name', from)?.trim().slice(0, 60);
+        if (!to || to === from) return;
+        if (this.doc.tabs.includes(to)) {
+            alert(`A tab named "${to}" already exists.`);
+            return;
+        }
+        this.doc.tabs[this.doc.tabs.indexOf(from)] = to;
+        for (const g of this.doc.groups) if (g.tab === from) g.tab = to;
+        this.activeTab = to;
+        this.save();
+        this.render();
+    }
+
+    private deleteTab(): void {
+        if (this.doc.tabs.length <= 1) return;
+        const groups = this.doc.groups.filter((g) => g.tab === this.activeTab);
+        const symbols = groups.reduce((n, g) => n + g.symbols.length, 0);
+        if (groups.length && !confirm(`Delete "${this.activeTab}", its groups and their ${symbols} symbols?`)) return;
+        const i = this.doc.tabs.indexOf(this.activeTab);
+        this.doc.tabs.splice(i, 1);
+        this.doc.groups = this.doc.groups.filter((g) => g.tab !== this.activeTab);
+        this.activeTab = this.doc.tabs[Math.max(0, i - 1)]!;
+        this.save();
+        this.render();
+    }
+
     private async reset(): Promise<void> {
         if (!confirm('Replace your watchlist with the default groups?')) return;
         this.doc = await this.defaults();
+        this.activeTab = this.doc.tabs[0]!;
         this.save();
         this.render();
         void this.refresh();

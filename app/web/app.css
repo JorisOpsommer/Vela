@@ -118,10 +118,56 @@ body {
     background: var(--vela-hover, #2a2e39);
 }
 
+.wl-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+    border-bottom: 1px solid var(--vela-border, #2a2e39);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.wl-tabs::-webkit-scrollbar {
+    display: none;
+}
+.wl-tab {
+    flex: none;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 8px 7px;
+    color: var(--vela-fg-muted, #868a96);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.wl-tab:hover {
+    color: var(--vela-fg-bright, #fff);
+}
+.wl-tab.on {
+    color: var(--vela-fg-bright, #fff);
+    border-bottom-color: var(--vela-accent, #2962ff);
+}
+.wl-tab-actions {
+    flex: none;
+    display: inline-flex;
+    gap: 2px;
+    margin-left: auto;
+    padding-left: 4px;
+}
+
 .wl-list {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+}
+.wl-empty {
+    padding: 14px 10px;
+    color: var(--vela-fg-muted, #868a96);
+    font-size: 12px;
 }
 
 .wl-group {

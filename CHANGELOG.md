@@ -6,6 +6,7 @@ All notable changes to Vela, newest first.
 
 ### Added
 
+- **Watchlist tabs hold the groups.** In the self-hosted app, the watchlist has tabs across its top, and each tab holds its own groups, so a Crypto tab can keep its groups apart from your stock lists. Add a tab with **＋**, rename the one on show with **✎**, and delete it with **✕**; deleting a tab also removes its groups. A watchlist saved before tabs existed keeps all its groups in one tab, called Watchlist.
 - **Untouched drawings lock themselves.** In the self-hosted app, a drawing left alone for a
   minute locks, so a stray drag cannot move it or delete it. Click a locked drawing and its
   toolbar offers only an **Unlock** control; once unlocked it can be edited and deleted again.
