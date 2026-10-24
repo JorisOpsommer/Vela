@@ -103,6 +103,7 @@ export class ShortcutsHelp {
         addCategory('Mouse');
         addRow('Scroll through history', ['Shift+Scroll']);
         addRow('Measure from the press point', ['Shift+Click']);
+        addRow('Move a drawing horizontally or vertically', ['Shift+Drag']);
         addRow('Delete the drawing under the cursor', ['Middle-click']);
         // The two type-to-act routes live outside the keymap (any-printable routing).
         const s = doc.createElement('div');

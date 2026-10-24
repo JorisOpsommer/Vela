@@ -337,13 +337,12 @@ describe('DrawingInteraction: selection + claim', () => {
         expect(h.settings).toHaveLength(1);
     });
 
-    it('shift-click toggles selection (additive) without dragging or opening settings', () => {
+    it('shift-click (no move) toggles selection on release, without opening settings', () => {
         const h = harness(null, [hline()]);
-        h.it.down(50, 70, 'off', true); // shift-click the hline (no magnet)
-        const sel = h.intents.find((i) => i.kind === 'select');
-        expect(sel?.kind === 'select' && sel.ids).toEqual(['dw-1']);
-        expect(sel?.kind === 'select' && sel.additive).toBe(true);
-        h.it.up(50, 70);
+        h.it.down(50, 70, 'off', true); // shift-press the hline (no magnet)
+        expect(h.intents).toHaveLength(0); // nothing until the release decides click vs drag
+        h.it.up(51, 71); // within the slop → a click
+        expect(h.intents).toEqual([{ kind: 'select', ids: ['dw-1'], additive: true }]);
         expect(h.settings).toHaveLength(0); // shift-click is selection-only
     });
 
@@ -653,6 +652,106 @@ describe('DrawingInteraction: dragging', () => {
         expect(a.anchors).toEqual([{ time: 10, price: 10 }, { time: 50, price: 50 }]);
         expect(b.anchors).toEqual([{ time: 10, price: 30 }]);
         expect(h.intents).toHaveLength(0);
+    });
+});
+
+describe('DrawingInteraction: Shift-drag locks the move to one axis', () => {
+    const trend = () =>
+        createDrawing('trendline', { id: 'dw-1', paneId: 'price', anchors: [{ time: 10, price: 10 }, { time: 50, price: 50 }] })!;
+    const hline = () => createDrawing('hline', { id: 'dw-2', paneId: 'price', anchors: [{ time: 10, price: 30 }] })!;
+    const edited = (h: ReturnType<typeof harness>) => {
+        const e = h.intents.find((i) => i.kind === 'edit');
+        return e?.kind === 'edit' ? e.doc.anchors : null;
+    };
+
+    it('a mostly sideways Shift-drag moves only in time; every price stays exact', () => {
+        const h = harness(null, [trend()]);
+        h.it.down(30, 70, 'off', true); // the trend line's body
+        h.it.move(70, 82, 'off', true); // dx=40 beats dy=12 → horizontal
+        h.it.up(70, 82);
+        expect(edited(h)).toEqual([{ time: 50, price: 10 }, { time: 90, price: 50 }]);
+        expect(h.intents.some((i) => i.kind === 'select')).toBe(false); // a drag, not a selection toggle
+    });
+
+    it('a mostly vertical Shift-drag moves only in price, and a tie stays vertical', () => {
+        const h = harness(null, [trend()]);
+        h.it.down(30, 70, 'off', true);
+        h.it.move(36, 50, 'off', true); // dy=20 beats dx=6 → vertical
+        h.it.up(36, 50);
+        expect(edited(h)).toEqual([{ time: 10, price: 30 }, { time: 50, price: 70 }]);
+
+        const tie = harness(null, [trend()]);
+        tie.it.down(30, 70, 'off', true);
+        tie.it.move(40, 60, 'off', true); // |dx| == |dy| → vertical
+        tie.it.up(40, 60);
+        expect(edited(tie)).toEqual([{ time: 10, price: 20 }, { time: 50, price: 60 }]);
+    });
+
+    it('re-chooses the axis on every move, measured from the press', () => {
+        const d = trend();
+        const h = harness(null, [d]);
+        h.it.down(30, 70, 'off', true);
+        h.it.move(60, 70, 'off', true); // sideways first → horizontal
+        expect(d.anchors).toEqual([{ time: 40, price: 10 }, { time: 80, price: 50 }]);
+        h.it.move(60, 30, 'off', true); // then far up: dy=40 beats dx=30 → vertical, time back home
+        expect(d.anchors).toEqual([{ time: 10, price: 50 }, { time: 50, price: 90 }]);
+    });
+
+    it('Shift pressed or released mid-drag takes effect on the next move', () => {
+        const d = trend();
+        const h = harness(null, [d]);
+        h.it.down(30, 70); // plain press
+        h.it.move(40, 65); // free: dt=+10, dp=+5
+        expect(d.anchors).toEqual([{ time: 20, price: 15 }, { time: 60, price: 55 }]);
+        h.it.move(40, 65, 'off', true); // Shift goes down → horizontal lock from the press
+        expect(d.anchors).toEqual([{ time: 20, price: 10 }, { time: 60, price: 50 }]);
+        h.it.move(40, 65); // Shift released → free again
+        expect(d.anchors).toEqual([{ time: 20, price: 15 }, { time: 60, price: 55 }]);
+    });
+
+    it('the riders of a multi-selection and the copies of a Ctrl-drag are locked too', () => {
+        const a = trend();
+        const b = hline(); // y = 70
+        const h = harness(null, [a, b]);
+        h.setSelected(['dw-1', 'dw-2']);
+        h.it.down(20, 80, 'off', true); // the trend line's body, clear of the hline
+        h.it.move(45, 70, 'off', true); // dx=25 beats dy=10 → horizontal
+        expect(b.anchors).toEqual([{ time: 35, price: 30 }]);
+        h.it.up(45, 70);
+        const many = h.intents.find((i) => i.kind === 'edit-many');
+        expect(many?.kind === 'edit-many' && many.docs.map((d) => d.anchors)).toEqual([
+            [{ time: 35, price: 10 }, { time: 75, price: 50 }],
+            [{ time: 35, price: 30 }],
+        ]);
+
+        const c = harness(null, [trend()]);
+        c.it.down(30, 70, 'strong', true, true); // Ctrl+Shift
+        c.it.move(33, 40, 'strong', true); // vertical
+        c.it.up(33, 40);
+        const clone = c.intents.find((i) => i.kind === 'clone');
+        expect(clone?.kind === 'clone' && clone.docs[0]!.anchors).toEqual([{ time: 10, price: 40 }, { time: 50, price: 80 }]);
+    });
+
+    it('a box body moves along one axis as well', () => {
+        const box = createDrawing('box', { id: 'dw-3', paneId: 'price', anchors: [{ time: 20, price: 40 }, { time: 60, price: 70 }] })!;
+        const h = harness(null, [box]);
+        h.it.down(40, 45, 'off', true); // inside the box
+        h.it.move(80, 55, 'off', true); // horizontal
+        h.it.up(80, 55);
+        expect(edited(h)).toEqual([{ time: 60, price: 40 }, { time: 100, price: 70 }]);
+    });
+
+    it('Shift held from the press on a line endpoint keeps the 45° angle lock', () => {
+        const d = trend();
+        const h = harness(null, [d]);
+        h.setHovered('dw-1');
+        h.it.down(50, 50, 'off', true); // grab p2 with Shift already down
+        h.it.move(90, 85, 'off', true); // ~4° below horizontal from p1 → flat
+        h.it.up(90, 85);
+        const anchors = edited(h)!;
+        expect(anchors[0]).toEqual({ time: 10, price: 10 });
+        expect(anchors[1]!.price).toBeCloseTo(10, 6);
+        expect(h.intents.some((i) => i.kind === 'select')).toBe(false);
     });
 });
 

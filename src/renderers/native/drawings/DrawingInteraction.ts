@@ -70,6 +70,8 @@ type State =
           riders: Rider[];
           /** Ctrl/Cmd was held at the press: a click toggles the selection, a body drag moves copies. */
           mod: boolean;
+          /** Shift was held at the press: a click toggles the selection (a drag still drags). */
+          shift: boolean;
           /** The transient copies a Ctrl-drag moves (built at drag start); the sources stay put. */
           clones: DragTarget[] | null;
       }
@@ -83,7 +85,9 @@ type State =
  * unit-testable without a canvas. `locked` drawings open settings but never drag.
  *
  * Modifiers at the press: Shift or Ctrl/Cmd over a drawing make the click a selection
- * toggle (multi-select); Ctrl/Cmd plus a body drag DUPLICATES — the copies follow the
+ * toggle (multi-select); Shift during a body drag locks the move to horizontal or
+ * vertical, whichever the cursor has travelled further along from the press.
+ * Ctrl/Cmd plus a body drag DUPLICATES — the copies follow the
  * cursor and are committed on release (`clone` intent), so the drag is one undo step and
  * cancelling it leaves nothing behind. Ctrl/Cmd-drag on the empty plot sweeps a marquee
  * that adds the drawings it touches to the selection. A body drag of a drawing that is
@@ -230,9 +234,10 @@ export class DrawingInteraction {
     }
 
     /** A press: place the next anchor, or grab a drawing/handle (resolved as click or drag on release).
-     *  `shift` over a drawing toggles it in/out of the selection (multi-select) instead of dragging;
-     *  while placing a line tool it locks the segment angle to 45° steps. `mod` (Ctrl/Cmd) over a
-     *  drawing also toggles on a click, but a body drag then moves a COPY. */
+     *  `shift` over a drawing makes a click toggle it in/out of the selection (multi-select) — a
+     *  drag still drags, axis- or angle-locked; while placing a line tool it locks the segment angle
+     *  to 45° steps. `mod` (Ctrl/Cmd) over a drawing also toggles on a click, but a body drag then
+     *  moves a COPY. */
     down(x: number, y: number, mode: SnapMode = 'off', shift = false, mod = false): void {
         const proj = this.deps.projector();
         if (this.state.kind === 'placing') {
@@ -262,10 +267,6 @@ export class DrawingInteraction {
         // without moving = a click (→ settings), release after moving = a drag.
         const hit = this.hitAt(x, y);
         if (hit) {
-            if (shift) {
-                this.deps.emit({ kind: 'select', ids: [hit.id], additive: true }); // shift-click toggles selection
-                return;
-            }
             const handle = hit.hitHandle(x, y, proj, HIT_TOLERANCE); // -1 = body, ≥0 = a handle
             // A body drag of a SELECTED drawing carries the rest of the selection along; a handle
             // drag reshapes just the one, and an unselected drawing drags alone.
@@ -276,7 +277,7 @@ export class DrawingInteraction {
                     if (d && !d.locked && d.visible) riders.push({ id, orig: cloneAnchors(d) });
                 }
             }
-            this.state = { kind: 'pressed', id: hit.id, handle, orig: cloneAnchors(hit), px: x, py: y, moved: false, riders, mod, clones: null };
+            this.state = { kind: 'pressed', id: hit.id, handle, orig: cloneAnchors(hit), px: x, py: y, moved: false, riders, mod, shift, clones: null };
         }
         // empty space → nothing here: the popup self-dismisses + hover already cleared handles.
     }
@@ -304,10 +305,12 @@ export class DrawingInteraction {
 
     /** Move the pressed drawing's body (and its riders) — or, on a Ctrl-drag, their copies — to the
      *  cursor. The copies are built on the first move (so a Ctrl-click never creates anything), from
-     *  sources that have not moved yet, so their own anchors are the origin to translate from. */
-    private dragBody(d: Drawing, x: number, y: number): void {
+     *  sources that have not moved yet, so their own anchors are the origin to translate from.
+     *  `shift` locks the move to one axis, re-chosen on every move (see {@link axisLockedCursor}). */
+    private dragBody(d: Drawing, x: number, y: number, shift: boolean): void {
         if (this.state.kind !== 'pressed') return;
         this.snapAt = null; // whole-body moves stay smooth (no snap)
+        if (shift) ({ x, y } = axisLockedCursor(this.state.px, this.state.py, x, y));
         if (this.state.mod && !this.state.clones) {
             this.state.clones = this.dragSources(d).flatMap((s) => {
                 const c = deserializeDrawing(s.d.serialize());
@@ -321,7 +324,8 @@ export class DrawingInteraction {
     }
 
     /** Pointer move: advance the placing ghost, or live-preview a drag once past the slop.
-     *  `shift` on a line tool locks the segment angle to 45° steps (placing + handle drags). */
+     *  `shift` on a line tool locks the segment angle to 45° steps (placing + handle drags), and
+     *  on a body drag locks the move to horizontal or vertical. */
     move(x: number, y: number, mode: SnapMode = 'off', shift = false): void {
         if (this.state.kind === 'idle') {
             // Armed but not yet placing: preview where the FIRST anchor will magnet-snap.
@@ -356,7 +360,7 @@ export class DrawingInteraction {
         if (!this.state.moved && Math.abs(x - this.state.px) <= DRAG_SLOP && Math.abs(y - this.state.py) <= DRAG_SLOP) return;
         this.state.moved = true;
         if (this.state.handle < 0) {
-            this.dragBody(d, x, y);
+            this.dragBody(d, x, y, shift);
         } else {
             const a = d.anchors[this.state.handle]; // a handle snaps to the candle
             if (a) {
@@ -395,12 +399,12 @@ export class DrawingInteraction {
             return;
         }
         if (this.state.kind !== 'pressed') return;
-        const { id, moved, riders, mod, clones } = this.state;
+        const { id, moved, riders, mod, shift, clones } = this.state;
         this.state = { kind: 'idle' };
         const d = this.byId(id);
         if (!moved) {
-            // A click: Ctrl/Cmd toggles the drawing in/out of the selection; plain opens its settings.
-            if (mod) this.deps.emit({ kind: 'select', ids: [id], additive: true });
+            // A click: Shift or Ctrl/Cmd toggles the drawing in/out of the selection; plain opens its settings.
+            if (mod || shift) this.deps.emit({ kind: 'select', ids: [id], additive: true });
             else this.deps.openSettings(id, x, y);
             return;
         }
@@ -581,6 +585,13 @@ export class DrawingInteraction {
 
 function cloneAnchors(d: Drawing): DrawingPoint[] {
     return d.anchors.map((a) => ({ time: a.time, price: a.price }));
+}
+
+/** The cursor of a Shift body drag, pinned to the press row or column — horizontal only while the
+ *  cursor has travelled strictly further across than up/down (a tie stays vertical). In pixels, so
+ *  a horizontal move keeps every price exactly and a vertical one every time. */
+export function axisLockedCursor(px: number, py: number, x: number, y: number): { x: number; y: number } {
+    return Math.abs(x - px) > Math.abs(y - py) ? { x, y: py } : { x: px, y };
 }
 
 /** Closed-interval overlap, so a zero-thickness bound (a horizontal line's) still counts. */

@@ -119,9 +119,18 @@ label (a trend line, a box), all four controls stay in that panel with the label
 
 Drag a handle to reshape; drag the body to move the whole drawing.
 
+**Hold Shift to move in a straight line.** Holding **Shift** while you drag a drawing's body
+keeps it on its row or its column: it moves only sideways (every price stays exactly where it
+was) or only up and down (every time stays put), whichever way the cursor has travelled further
+from where you pressed. The direction follows the cursor as you drag, and pressing or releasing
+**Shift** mid-drag takes effect at once. It works for a whole selection and for a Ctrl/Cmd-drag
+copy too.
+
 ### Selecting several drawings
 
 - **Shift+click** or **Ctrl/Cmd+click** a drawing to add it to (or remove it from) the selection.
+  The selection changes when you release without moving; a Shift-press that drags moves the
+  drawing in a straight line instead.
 - **Ctrl/Cmd+drag on an empty spot** sweeps a selection box: every drawing it touches joins the
   selection. Successive boxes accumulate.
 - While Ctrl/Cmd is held, handles mark only what is selected — hovering a drawing no longer shows

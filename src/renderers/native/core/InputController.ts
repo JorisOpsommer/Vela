@@ -64,11 +64,13 @@ export interface InputControllerDeps {
      *  revert to the pointer. True when consumed — the companion contextmenu is then
      *  suppressed. */
     drawingsCancelPlacement?(): boolean;
-    /** A claimed press began. `snap` = effective magnet mode; `shift` = additive (multi-) select;
+    /** A claimed press began. `snap` = effective magnet mode; `shift` = a click is an additive
+     *  (multi-) select, a body drag is axis-locked;
      *  `mod` = Ctrl/Cmd held (a click toggles the selection, a body drag duplicates). */
     drawingsPointerDown?(x: number, y: number, snap: SnapMode, shift: boolean, mod: boolean): void;
     /** Pointer moved (forwarded for the placing ghost / drag preview). `snap` = effective magnet
-     *  mode; `shift` = lock a line tool's segment angle to 45° steps; `mod` = Ctrl/Cmd held
+     *  mode; `shift` = lock a line tool's segment angle to 45° steps, or a body drag to horizontal /
+     *  vertical; `mod` = Ctrl/Cmd held
      *  (the cursor is picking a selection — no hover handles). */
     drawingsPointerMove?(x: number, y: number, snap: SnapMode, shift: boolean, mod: boolean): void;
     /** Cursor to show while hovering the drawings layer (e.g. `'pointer'` over a drawing), or null. */
@@ -278,7 +280,7 @@ export class InputController {
         // Right-press companion: contextmenu also fires AFTER pointerdown, so a right
         // press that cancelled a placement (see onDown) vetoes the host's menu here.
         el.addEventListener('contextmenu', this.onContextGuard);
-        // Modifiers change the drawings preview (Shift = angle lock, Ctrl/Cmd = magnet
+        // Modifiers change the drawings preview (Shift = angle / axis lock, Ctrl/Cmd = magnet
         // override) and must take effect the moment they are pressed/released, not on the
         // next mouse move — window-level so no chart focus is required. Optional chaining
         // keeps headless fakes (unit tests) attachable without a document.
@@ -335,7 +337,7 @@ export class InputController {
 
     /** A modifier press/release with the pointer stationary: re-issue the last cursor
      *  position so the placing ghost / drag preview reflects the new state immediately
-     *  (Shift's 45° angle lock, Ctrl/Cmd's momentary strong magnet). */
+     *  (Shift's 45° angle lock or axis-locked move, Ctrl/Cmd's momentary strong magnet). */
     private readonly onModifier = (e: KeyboardEvent): void => {
         if (e.repeat || (e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Meta')) return;
         if (Number.isNaN(this.cursorX)) return; // pointer is not over the chart

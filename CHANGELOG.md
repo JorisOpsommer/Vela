@@ -6,6 +6,7 @@ All notable changes to Vela, newest first.
 
 ### Added
 
+- **Hold Shift to move a drawing in a straight line.** Dragging a line, box or any other drawing by its body with **Shift** held keeps it on its row or its column: it slides only sideways, keeping its prices exactly, or only up and down, keeping its times. The direction follows whichever way you have dragged further, and pressing or releasing Shift mid-drag takes effect at once. Shift+click still adds a drawing to the selection or removes it.
 - **Trend lines, rectangles and Fibonacci levels can run to the chart edges.** Select one and click the **∞** button beside the lock to run both of its ends out to the edges of the chart. A support or resistance box then keeps reaching across the chart without being extended by hand. Click **∞** again to bring the ends back to their corners. The settings panel also has an **Extend** choice for each side on its own.
 - **Watchlist tabs hold the groups.** In the self-hosted app, the watchlist has tabs across its top, and each tab holds its own groups, so a Crypto tab can keep its groups apart from your stock lists. Add a tab with **＋**, rename the one on show with **✎**, and delete it with **✕**; deleting a tab also removes its groups. A watchlist saved before tabs existed keeps all its groups in one tab, called Watchlist.
 - **Untouched drawings lock themselves.** In the self-hosted app, a drawing left alone for a
