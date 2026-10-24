@@ -60,6 +60,11 @@ export class TrendLine extends Drawing {
         return { min: Math.min(a.price, b.price), max: Math.max(a.price, b.price) };
     }
 
+    // An extended end runs to the chart edge → never cull by time.
+    override timeExtent(): { min: number; max: number } | null {
+        return this.style.extendLeft || this.style.extendRight ? null : super.timeExtent();
+    }
+
     schema(): SettingsSchema {
         return {
             fields: [

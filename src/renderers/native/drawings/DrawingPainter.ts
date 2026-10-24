@@ -1,5 +1,5 @@
 import type { Drawing, Projector, DrawingStyle } from '../../../core/drawings';
-import { SegmentDrawing, TrendLine, FibRatios, RadialFib, FibSpiral, GannSquare, GANN_SQUARE_ARCS, DedekindTessellation, MachFigure, MeasureBox, PositionTool, PatternDrawing, CalloutBase, Callout, Comment, PriceNote, Signpost, Note, PriceLabel, ArrowMark, GlyphStamp, RegressionChannel, AnchoredVwap, FixedRangeVolumeProfile, Magnifier, PriceActionZone, Liquidity, magnifierTimeframeLabel, lineSegmentIntersection, effectiveFillColor, VALID_FILL, INVALID_FILL, DEFAULT_DRAWING_COLOR } from '../../../core/drawings';
+import { SegmentDrawing, TrendLine, Box, FibRatios, RadialFib, FibSpiral, GannSquare, GANN_SQUARE_ARCS, DedekindTessellation, MachFigure, MeasureBox, PositionTool, PatternDrawing, CalloutBase, Callout, Comment, PriceNote, Signpost, Note, PriceLabel, ArrowMark, GlyphStamp, RegressionChannel, AnchoredVwap, FixedRangeVolumeProfile, Magnifier, PriceActionZone, Liquidity, magnifierTimeframeLabel, lineSegmentIntersection, effectiveFillColor, VALID_FILL, INVALID_FILL, DEFAULT_DRAWING_COLOR } from '../../../core/drawings';
 import type { VelaTheme } from '../../../core/options';
 import { contrastColor, dashPattern, extendEndpoints, namedFontSize, labelLineHeight, TEXT_FRAME_INSET, TEXT_FRAME_RISE, uprightLineAngle } from '../../shared/drawing-geometry';
 import { BEARISH, BULLISH, NEUTRAL, SLATE, SLATE_DEEP } from '../../../core/palette';
@@ -439,12 +439,9 @@ export class DrawingPainter {
                 break;
             }
             case 'box': {
-                const pts = d.handlePoints(proj);
-                if (pts.length < 2) return;
-                const x = Math.min(pts[0]![0], pts[1]![0]);
-                const y = Math.min(pts[0]![1], pts[1]![1]);
-                const w = Math.abs(pts[1]![0] - pts[0]![0]);
-                const h = Math.abs(pts[1]![1] - pts[0]![1]);
+                const f = d instanceof Box ? d.frame(proj) : null;
+                if (!f) return;
+                const { x, y, w, h } = f;
                 if (d.style.fillColor) {
                     ctx.save();
                     ctx.fillStyle = d.style.fillColor; // alpha lives in the fill color itself

@@ -397,6 +397,10 @@ export class DrawingSettingsPopup {
         // points, levels, sizing) — it stays off a multi-selection.
         bar.appendChild(this.divider());
         if (!multi) bar.appendChild(this.iconBtn('Settings', GEAR_ICON, () => this.openPanel()));
+        // Infinite: both ends run to the chart edges, so a box or line never needs extending by hand.
+        if (paths.has('style.extendLeft') && paths.has('style.extendRight')) {
+            bar.appendChild(this.toggle('Infinite', INFINITY_ICON, common((d) => !!d.style.extendLeft && !!d.style.extendRight), (v) => actions.patch({ 'style.extendLeft': v, 'style.extendRight': v })));
+        }
         bar.appendChild(this.toggle('Lock', LOCK_ICON, common((d) => d.locked), (v) => actions.setLocked(v), UNLOCK_ICON));
         const del = this.iconBtn('Delete', TRASH_ICON, () => actions.remove());
         del.style.color = 'var(--vela-danger)';
@@ -1063,6 +1067,7 @@ const BUCKET_ICON = icon('bucket');
 const TYPE_ICON = icon('type');
 const PRICE_DELTA_ICON = icon('price-delta');
 const DATE_DELTA_ICON = icon('date-delta');
+const INFINITY_ICON = icon('infinity');
 const LOCK_ICON = icon('lock');
 const UNLOCK_ICON = icon('unlock');
 const FRONT_ICON = icon('bring-front');
