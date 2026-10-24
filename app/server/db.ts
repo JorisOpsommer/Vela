@@ -1,5 +1,6 @@
 // SQLite persistence (node:sqlite — no native addon to compile). One file in DATA_DIR
-// holds accounts, sessions, per-user chart state, and the logo cache.
+// holds accounts, sessions, per-user chart state, the logo cache, the options history,
+// and the detected trend shapes.
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,6 +56,33 @@ const MIGRATIONS: string[] = [
     CREATE INDEX analytics_user_ts ON analytics_events(user_id, ts);`,
     // The admin activity table and retention sweep filter on time across all users.
     `CREATE INDEX analytics_ts ON analytics_events(ts);`,
+    // The daily options read: history that cannot be fetched again (the broker serves
+    // today's open interest only), so it lives here and not in the disposable cache.
+    `CREATE TABLE options_daily (
+        symbol TEXT NOT NULL,
+        date TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        summary TEXT NOT NULL,
+        strikes TEXT,
+        PRIMARY KEY (symbol, date)
+    ) WITHOUT ROWID;
+    CREATE TABLE options_latest (
+        symbol TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        detail TEXT NOT NULL
+    );`,
+    // Detected trend shapes per symbol and timeframe — rebuilt from the cached bars, kept
+    // so the trends page answers without reading them again.
+    `CREATE TABLE trend_reads (
+        symbol TEXT NOT NULL,
+        tf TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        as_of INTEGER NOT NULL,
+        computed_at INTEGER NOT NULL,
+        read TEXT NOT NULL,
+        PRIMARY KEY (symbol, tf)
+    ) WITHOUT ROWID;`,
 ];
 
 export function openDb(dataDir: string): Db {

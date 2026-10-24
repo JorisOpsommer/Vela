@@ -22,7 +22,7 @@ updates merge cleanly.
 
 | Source | Key | What it serves | Limits |
 | --- | --- | --- | --- |
-| Alpaca (Basic) | yes | US stocks and ETFs (history from the consolidated tape, newest 15 min from IEX), US crypto fallback, exchange calendar, the list of ~13,000 US equities for search | 200 requests/min |
+| Alpaca (Basic) | yes | US stocks and ETFs (history from the consolidated tape, newest 15 min from IEX), US crypto fallback, exchange calendar, the list of ~13,000 US equities for search with their margin and borrow terms, option chains for the **Options** page (open interest, and quotes, greeks and implied volatility from the indicative feed) | 200 requests/min |
 | Finnhub (free) | yes | Real-time trade stream for the watchlist and open charts (US stocks, EUR/USD), company logos, fallback quotes | 60 requests/min, 50 streamed symbols. The free plan has no historical bars. |
 | Yahoo Finance chart endpoint | no | Indices (Dow, Nasdaq 100, DAX, Nikkei, VIX, DXY), futures (Brent, WTI, TTF gas), EUR/USD, fallback for stocks | Unofficial: it can change without notice. Answers are cached. |
 | Coinbase | no | BTC/USD, ETH/USD, ETH/BTC history and live stream | Public market data |
@@ -38,6 +38,11 @@ Things to know:
   IEX trades (a small share of the market). Older bars carry full-market volume.
 - Belpex is a price, not a traded instrument: each delivery slot is one flat bar, and larger
   timeframes fold slots into real open/high/low/close. Its smallest timeframe is 15 minutes.
+- Option prices on the Basic plan come from Alpaca's indicative feed: derived from the
+  exchange quotes, with trades delayed 15 minutes. Open interest is Alpaca's daily figure.
+  Each watched stock costs about three requests a day, read once after the close.
+- The **Trends** page reads only the cached 4h and daily bars, so it costs no provider
+  requests.
 - The default watchlist and the symbol mapping live in [`app/config/tickers.json`](app/config/tickers.json).
   Add any instrument the sources carry, then restart the container.
 
@@ -149,6 +154,9 @@ docker compose exec app node -e "require('node:sqlite').backup(new (require('nod
 ```bash
 docker compose cp app:/data/backup.sqlite ./vela-backup.sqlite
 ```
+
+`vela.sqlite` also keeps the daily options history (open interest by strike, implied
+volatility): Alpaca serves only the current day, so it can't be fetched again.
 
 The `cache/` folder (`cache/cache.sqlite` holds the market-data cache behind the **Cache** page)
 only copies provider data. Leave it out of backups, or delete it at any time with the stack

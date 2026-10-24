@@ -5,6 +5,8 @@ import { logout } from './api';
 const TABS: Array<{ href: string; label: string }> = [
     { href: '/', label: 'Charts' },
     { href: '/insights', label: 'Insights' },
+    { href: '/options', label: 'Options' },
+    { href: '/trends', label: 'Trends' },
     { href: '/stats', label: 'Data providers' },
     { href: '/cache', label: 'Cache' },
     { href: '/account', label: 'Account' },

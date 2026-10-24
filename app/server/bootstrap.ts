@@ -17,6 +17,10 @@ import { RelatedMap } from './analytics/related';
 import { CacheStore } from './market/cache-store';
 import { CachedMarket } from './market/cached-market';
 import { CacheWarmer } from './market/warmer';
+import { OptionsService } from './options/service';
+import { optionsJob } from './options/job';
+import { TrendsService } from './trends/service';
+import { trendsJob } from './trends/job';
 
 export interface Services {
     db: Db;
@@ -26,6 +30,8 @@ export interface Services {
     cached: CachedMarket;
     warmer: CacheWarmer;
     related: RelatedMap;
+    options: OptionsService;
+    trends: TrendsService;
     close(): void;
 }
 
@@ -80,7 +86,10 @@ export function createServices(config: AppConfig, log: Log): Services {
     }
 
     const cached = new CachedMarket(market, new CacheStore(path.join(config.dataDir, 'cache', 'cache.sqlite')));
-    const warmer = new CacheWarmer(cached, db, hub);
+    const options = new OptionsService(db, market);
+    const trends = new TrendsService(db, cached);
+    // Trends first: they need only the bars the pass just refreshed, and cost no request.
+    const warmer = new CacheWarmer(cached, db, hub, { jobs: [trendsJob(trends, market), optionsJob(options)] });
     warmer.start();
 
     const related = RelatedMap.load(config.configDir);
@@ -94,6 +103,8 @@ export function createServices(config: AppConfig, log: Log): Services {
         cached,
         warmer,
         related,
+        options,
+        trends,
         close() {
             warmer.stop();
             finnhub?.close();

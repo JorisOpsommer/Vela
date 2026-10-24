@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <title>Options · Charts</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    </head>
+    <body class="gradient-page options">
+        <main class="page">
+            <section class="hero">
+                <h1>Options positioning</h1>
+                <p>Open interest, implied volatility and dealer gamma for the stocks you watch — read once a day after the close, and on demand for anything else.</p>
+            </section>
+
+            <div class="section-title">Your watchlist <small id="wl-note"></small></div>
+            <div class="card table-card"><div id="watchlist"></div></div>
+
+            <section id="detail" hidden>
+                <div class="opt-head">
+                    <div class="opt-title"><span id="d-logo"></span><div><h2 id="d-symbol"></h2><div class="opt-name" id="d-name"></div></div></div>
+                    <form class="opt-search" id="search" autocomplete="off">
+                        <input id="search-input" type="search" placeholder="Any optionable stock, e.g. NVDA" aria-label="Symbol" maxlength="12" />
+                        <button class="btn" type="submit">Show</button>
+                    </form>
+                </div>
+                <p class="opt-asof" id="d-asof"></p>
+                <div class="grid kpis" id="d-kpis"></div>
+
+                <div class="section-title">Where the positions are</div>
+                <div class="grid two">
+                    <div class="card">
+                        <h3>Open interest by strike<span class="sub" id="oi-sub"></span></h3>
+                        <div class="seg" id="oi-mode" role="group" aria-label="Open interest view">
+                            <button type="button" data-mode="level" aria-pressed="true">Contracts</button>
+                            <button type="button" data-mode="change" aria-pressed="false">Change since last read</button>
+                        </div>
+                        <div id="oi-chart"></div>
+                    </div>
+                    <div class="card">
+                        <h3>Dealer gamma by strike<span class="sub">$ of hedging per 1% move</span></h3>
+                        <div id="gex-chart"></div>
+                    </div>
+                </div>
+
+                <div class="section-title">What the market prices in</div>
+                <div class="grid two">
+                    <div class="card"><h3>If the price moved<span class="sub">net dealer gamma at each price</span></h3><div id="flip-chart"></div><p class="opt-explain" id="flip-explain"></p></div>
+                    <div class="card"><h3>Volatility by expiry<span class="sub">at-the-money implied volatility</span></h3><div id="term-chart"></div></div>
+                </div>
+                <div class="grid two">
+                    <div class="card"><h3>Volatility smile<span class="sub" id="smile-sub"></span></h3><div id="smile-chart"></div></div>
+                    <div class="card"><h3>Risk and margin<span class="sub">per 100 shares</span></h3><div id="risk"></div></div>
+                </div>
+
+                <div class="section-title">Activity</div>
+                <div class="grid two">
+                    <div class="card table-card"><h3>Unusual activity<span class="sub">today's volume over the standing open interest</span></h3><div id="unusual"></div></div>
+                    <div class="card table-card"><h3>Largest open interest</h3><div id="top-oi"></div></div>
+                </div>
+
+                <div class="section-title">History <small id="hist-note"></small></div>
+                <div class="grid two">
+                    <div class="card"><h3>Put/call ratio<span class="sub">open interest</span></h3><div id="hist-pcr"></div></div>
+                    <div class="card"><h3>Implied volatility<span class="sub">30-day, at the money</span></h3><div id="hist-iv"></div></div>
+                </div>
+
+                <p class="opt-foot">
+                    Prices come from the broker's indicative options feed: derived from the exchange quotes, with trades delayed 15 minutes. Open interest is the broker's daily figure,
+                    published the morning after. Dealer gamma assumes dealers are long the calls and short the puts customers trade — a common estimate of hedging pressure, not a
+                    measurement. Greeks missing from the feed are filled in with a Black-Scholes model. Margin figures are the broker's own requirements; exchange and option margin are
+                    not included. Nothing here is investment advice.
+                </p>
+            </section>
+        </main>
+        <script type="module" src="./options.ts"></script>
+    </body>
+</html>

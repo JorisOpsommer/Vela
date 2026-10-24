@@ -1,0 +1,234 @@
+/* The options page, on the shared gradient theme (pages.css). */
+.options .kpi .value {
+    white-space: nowrap;
+    font-size: clamp(22px, 2.4vw, 28px);
+}
+.table-card {
+    padding: 14px 16px;
+}
+.table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.table-wrap table.data {
+    min-width: 560px;
+}
+table.data td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+table.data td.muted {
+    color: var(--text-muted);
+}
+table.data tr.clickable {
+    cursor: pointer;
+}
+table.data tr.clickable:hover,
+table.data tr.clickable:focus-visible {
+    background: rgba(255, 255, 255, 0.05);
+    outline: none;
+}
+table.data td.sym {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+table.data td.sym .nm {
+    color: var(--text-muted);
+    font-size: 12px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+table.data td.sym .logo {
+    width: 22px;
+    height: 22px;
+}
+
+.regime {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.regime::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+}
+/* Identity, not status: the regime's name carries it, the swatch only echoes the chart. */
+.regime.long::before {
+    background: var(--series-1);
+}
+.regime.short::before {
+    background: var(--series-2);
+}
+.kpi .regime {
+    margin-top: 6px;
+}
+
+.right {
+    display: inline-block;
+    min-width: 34px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 1px 6px;
+    border-radius: 6px;
+    text-align: center;
+    color: var(--text-primary);
+}
+.right.call {
+    box-shadow: inset 0 0 0 1.5px var(--series-1);
+}
+.right.put {
+    box-shadow: inset 0 0 0 1.5px var(--series-2);
+}
+
+#detail {
+    margin-top: 34px;
+    scroll-margin-top: 64px;
+}
+#detail[hidden] {
+    display: none !important;
+}
+#detail.loading .grid,
+#detail.loading .section-title {
+    opacity: 0.45;
+    transition: opacity 0.2s;
+}
+#detail.failed .grid,
+#detail.failed .section-title,
+#detail.failed .opt-foot {
+    display: none;
+}
+.opt-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.opt-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.opt-title h2 {
+    margin: 0;
+    font-size: 28px;
+    line-height: 1.1;
+}
+.opt-name {
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.opt-name a.chip {
+    text-decoration: none;
+}
+.opt-search {
+    display: flex;
+    gap: 8px;
+}
+.opt-search input {
+    width: 220px;
+    max-width: 52vw;
+    background: var(--glass-strong);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font: inherit;
+}
+.opt-asof {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 8px 0 16px;
+}
+.opt-explain {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 10px 0 0;
+}
+.opt-foot {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 28px;
+    max-width: 900px;
+}
+.chart text.ref {
+    fill: var(--text-secondary);
+    font-size: 10.5px;
+}
+
+.seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    margin: 0 0 10px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.05);
+}
+.seg button {
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+.seg button[aria-pressed='true'] {
+    background: var(--glass-strong);
+    color: var(--text-primary);
+}
+.seg button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.risk-list {
+    display: grid;
+    gap: 2px;
+}
+.risk-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) auto;
+    column-gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--grid);
+}
+.risk-row:last-child {
+    border-bottom: 0;
+}
+.risk-row .name {
+    color: var(--text-secondary);
+}
+.risk-row b {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.risk-row .hint {
+    grid-column: 1 / -1;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+@media (max-width: 520px) {
+    .opt-search {
+        width: 100%;
+    }
+    .opt-search input {
+        flex: 1;
+        max-width: none;
+    }
+}

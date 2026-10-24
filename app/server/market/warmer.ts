@@ -11,7 +11,7 @@ import type { CachedMarket } from './cached-market';
 import type { LiveHub } from './live';
 import { activity, runInBackground } from './background';
 import { BACKGROUND_SHARE, BackgroundYield, setBackgroundGate } from './limits';
-import { collectTargets, type WarmTarget } from './warm-targets';
+import { collectTargets, type WarmPlan, type WarmTarget } from './warm-targets';
 import { localDate, zonedWallTime } from './timeframes';
 
 export type PassKind = 'close' | 'premarket' | 'intraday' | 'crypto' | 'manual';
@@ -22,12 +22,30 @@ export interface WarmerOptions {
     tickMs?: number;
     /** Pause between two warm requests. */
     stepGapMs?: number;
+    /** Work that rides the passes after the cache fill, under the same quiet gate and share. */
+    jobs?: BackgroundJob[];
+}
+
+/** One unit of a job's work. A step that needs nothing done returns without a request. */
+export interface JobStep {
+    label: string;
+    run(): Promise<void>;
+}
+
+/**
+ * Work served from the warmer's passes: its steps run after the pass's own, give way to
+ * users the same way, and count in the pass's progress.
+ */
+export interface BackgroundJob {
+    id: string;
+    steps(kind: PassKind, plan: WarmPlan): JobStep[];
 }
 
 interface Step {
-    kind: 'bars' | 'quotes';
+    kind: 'bars' | 'quotes' | 'job';
     target?: WarmTarget;
     symbols?: string[];
+    job?: JobStep;
 }
 
 interface ActivePass {
@@ -66,6 +84,7 @@ export class CacheWarmer {
     private readonly quietMs: number;
     private readonly stepGapMs: number;
     private readonly tickMs: number;
+    private readonly jobs: BackgroundJob[];
 
     constructor(
         private readonly cached: CachedMarket,
@@ -77,6 +96,7 @@ export class CacheWarmer {
         this.quietMs = opts.quietMs ?? 3 * 60_000;
         this.stepGapMs = opts.stepGapMs ?? 250;
         this.tickMs = opts.tickMs ?? 30_000;
+        this.jobs = opts.jobs ?? [];
         this.bootAt = now();
         this.cached.store.abandonRunning();
         // Every background request checks this first, so a step stops at its next request.
@@ -167,6 +187,7 @@ export class CacheWarmer {
             const symbols = [...plan.watched.keys()];
             for (let i = 0; i < symbols.length; i += QUOTE_BATCH) steps.push({ kind: 'quotes', symbols: symbols.slice(i, i + QUOTE_BATCH) });
         }
+        for (const job of this.jobs) for (const j of job.steps(kind, plan)) steps.push({ kind: 'job', job: j });
         const runId = this.cached.store.startRun(kind, slot, steps.length);
         this.pass = { runId, kind, slot, steps, index: 0, done: 0, skipped: 0, failed: 0, calls: 0, startedAt: this.now() };
         if (kind === 'manual') this.manual = false;
@@ -187,6 +208,7 @@ export class CacheWarmer {
             try {
                 await runInBackground(async () => {
                     if (step.kind === 'quotes') await this.cached.quotes(step.symbols!);
+                    else if (step.kind === 'job') await step.job!.run();
                     else await this.cached.bars(step.target!.symbol, step.target!.tf, { limit: step.target!.limit, session: step.target!.session === 'extended' ? 'extended' : 'regular' });
                 }, { avoid });
                 p.done += 1;
@@ -285,7 +307,7 @@ export class CacheWarmer {
             openCharts: this.hub.stats().topics,
             manualQueued: this.manual,
             pass: p
-                ? { kind: p.kind, slot: p.slot, total: p.steps.length, index: p.index, done: p.done, skipped: p.skipped, failed: p.failed, calls: p.calls, startedAt: p.startedAt, current: p.steps[p.index]?.target ?? null }
+                ? { kind: p.kind, slot: p.slot, total: p.steps.length, index: p.index, done: p.done, skipped: p.skipped, failed: p.failed, calls: p.calls, startedAt: p.startedAt, current: p.steps[p.index]?.target ?? null, job: p.steps[p.index]?.job?.label ?? null }
                 : null,
         };
     }

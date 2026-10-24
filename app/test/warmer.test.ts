@@ -7,7 +7,7 @@ import { CachedMarket } from '../server/market/cached-market';
 import { CacheStore, seriesKey } from '../server/market/cache-store';
 import { Catalog } from '../server/market/catalog';
 import { MarketService } from '../server/market/service';
-import { CacheWarmer } from '../server/market/warmer';
+import { CacheWarmer, type BackgroundJob } from '../server/market/warmer';
 import { activity, runAsUpkeep, runInBackground } from '../server/market/background';
 import { BackgroundYield, TokenBucket, TtlCache, setBackgroundGate } from '../server/market/limits';
 import { collectTargets } from '../server/market/warm-targets';
@@ -23,7 +23,7 @@ afterEach(() => {
     setBackgroundGate(null);
 });
 
-function world(opts: { onCall?: (n: number) => void } = {}) {
+function world(opts: { onCall?: (n: number) => void; jobs?: BackgroundJob[] } = {}) {
     const calls: string[] = [];
     const bridge: Bridge = {
         id: 'yahoo',
@@ -59,7 +59,7 @@ function world(opts: { onCall?: (n: number) => void } = {}) {
     db.prepare("INSERT INTO user_storage (user_id, key, value, updated_at) VALUES (1, 'workspace', ?, 0)").run(JSON.stringify({ version: 1, charts: [{ symbol: 'INDEX:IDX', timeframe: '5', bars: 300 }] }));
     let topics = 0;
     const hub = { stats: () => ({ topics, listeners: topics }) } as unknown as LiveHub;
-    const warmer = new CacheWarmer(cached, db, hub, { quietMs: 3 * MIN, stepGapMs: 0, tickMs: 60_000 });
+    const warmer = new CacheWarmer(cached, db, hub, { quietMs: 3 * MIN, stepGapMs: 0, tickMs: 60_000, jobs: opts.jobs });
     return { calls, store, cached, db, warmer, setStreams: (n: number) => (topics = n) };
 }
 
@@ -117,6 +117,32 @@ describe('CacheWarmer', () => {
         expect(activity.lastUserCall()).toBe(userBefore);
         expect(activity.series(1)[0]!.background).toBeGreaterThan(0);
         expect(store.runs()[0]).toMatchObject({ status: 'done' });
+    });
+
+    it('runs the jobs riding a pass after its own steps, in the background, counted in its progress', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(OPEN);
+        const seen: Array<{ watched: string[]; cached: boolean; background: boolean }> = [];
+        const { store, warmer } = world({
+            jobs: [
+                {
+                    id: 'probe',
+                    steps: (_kind, plan) => [
+                        {
+                            label: 'probe',
+                            run: async () => {
+                                const { isBackground } = await import('../server/market/background');
+                                seen.push({ watched: [...plan.watched.keys()].sort(), cached: !!store.series(seriesKey('ALT', 'D', 'all')), background: isBackground() });
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        vi.setSystemTime(OPEN + 4 * MIN);
+        await warmer.tick();
+        expect(seen).toEqual([{ watched: ['ALT', 'IDX'], cached: true, background: true }]);
+        expect(store.runs()[0]).toMatchObject({ status: 'done', done: store.runs()[0]!.total });
     });
 
     it('steps aside before its next request when a user reaches a provider', async () => {

@@ -15,6 +15,8 @@ import type { LiveHub } from './market/live';
 import type { CachedMarket } from './market/cached-market';
 import type { CacheWarmer } from './market/warmer';
 import type { RelatedMap } from './analytics/related';
+import type { OptionsService } from './options/service';
+import type { TrendsService } from './trends/service';
 import { applySecurityHeaders, clientIp, isHttps, sameOrigin } from './security';
 import { FailureLimiter, WindowCounter } from './auth/rate-limit';
 import { registerAuthRoutes } from './routes/auth';
@@ -23,6 +25,8 @@ import { registerStorageRoutes } from './routes/storage';
 import { registerMarketRoutes } from './routes/market';
 import { registerInsightRoutes } from './routes/insights';
 import { registerCacheRoutes } from './routes/cache';
+import { registerOptionsRoutes } from './routes/options';
+import { registerTrendRoutes } from './routes/trends';
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -44,6 +48,10 @@ export interface AppDeps {
     /** Absent in tests that do not exercise background warming. */
     warmer?: CacheWarmer;
     related: RelatedMap;
+    /** Absent in tests that do not exercise the options page. */
+    options?: OptionsService;
+    /** Absent in tests that do not exercise the trends page. */
+    trends?: TrendsService;
     logger?: boolean;
 }
 
@@ -134,6 +142,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     registerMarketRoutes(app, ctx);
     registerInsightRoutes(app, ctx);
     registerCacheRoutes(app, ctx);
+    registerOptionsRoutes(app, ctx);
+    registerTrendRoutes(app, ctx);
 
     // ── Pages ──────────────────────────────────────────────────────────────
     const webDir = config.webDir;
@@ -155,6 +165,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     app.get('/stats', (req, reply) => requireSession(req, reply, 'stats.html'));
     app.get('/insights', (req, reply) => requireSession(req, reply, 'insights.html'));
     app.get('/cache', (req, reply) => requireSession(req, reply, 'cache.html'));
+    app.get('/options', (req, reply) => requireSession(req, reply, 'options.html'));
+    app.get('/trends', (req, reply) => requireSession(req, reply, 'trends.html'));
     app.get('/login', (req, reply) => (req.session ? reply.redirect('/') : sendPage(reply, 'login.html')));
 
     if (fs.existsSync(path.join(webDir, 'assets'))) {

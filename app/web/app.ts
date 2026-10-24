@@ -12,6 +12,7 @@ import { startTracker } from './lib/tracker';
 import { showProviderLimit } from './lib/toast';
 import { startDataNotices } from './lib/data-notices';
 import { startMarketBell } from './lib/market-bell';
+import { INBOX_KEY, startDrawingInbox } from './lib/drawing-inbox';
 import './app.css';
 
 const WORKSPACE_KEY = 'workspace';
@@ -19,6 +20,8 @@ const WORKSPACE_KEY = 'workspace';
 registerIcon('app-watchlist', svg16('<path d="M5 4h8M5 8h8M5 12h8"/><circle cx="2.5" cy="4" r=".6" fill="currentColor"/><circle cx="2.5" cy="8" r=".6" fill="currentColor"/><circle cx="2.5" cy="12" r=".6" fill="currentColor"/>'));
 registerIcon('app-account', svg16('<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.4 2.7-3.5 5-3.5s4.2 1.1 5 3.5"/>'));
 registerIcon('app-stats', svg16('<path d="M2.5 13.5h11"/><path d="M4 11V8M7 11V4.5M10 11V6.5M13 11V3"/>'));
+registerIcon('app-options', svg16('<path d="M2.5 13.5h11"/><path d="M4 11.5V9M6.5 11.5V6M9 11.5V4M11.5 11.5V7.5"/><path d="M2.5 3.5l3 2 3-2.5 4.5 2"/>'));
+registerIcon('app-trends', svg16('<path d="M2 12.5l4-4 3 2.5 5-6"/><path d="M10.5 5H14v3.5"/>'));
 registerIcon('app-insights', svg16('<path d="M8 1.8l1.6 3.6 3.9.4-2.9 2.6.8 3.8L8 10.3l-3.4 1.9.8-3.8L2.5 5.8l3.9-.4z"/>'));
 registerIcon('app-logout', svg16('<path d="M6 3H3.5v10H6M10 5l3 3-3 3M13 8H6.5"/>'));
 
@@ -29,7 +32,7 @@ async function main(): Promise<void> {
         return;
     }
     startMarketBell();
-    const storage = await createServerStorage([WORKSPACE_KEY, 'watchlist']);
+    const storage = await createServerStorage([WORKSPACE_KEY, 'watchlist', INBOX_KEY]);
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Etc/UTC';
     // First visit: a starter layout with the common indicators. Seeded, not saved —
     // nothing is written until the user changes something.
@@ -37,6 +40,8 @@ async function main(): Promise<void> {
 
     const provider = new ServerProvider({ onProviderLimit: showProviderLimit });
     registerSidePanel(watchlistPanel(storage, provider));
+    registerWidgetAction({ id: 'app-trends', target: 'topbar', label: 'Detected trends', icon: 'app-trends', iconOnly: true, order: 860, run: (ctx) => (location.href = `/trends?symbol=${encodeURIComponent(ctx.symbol)}`) });
+    registerWidgetAction({ id: 'app-options', target: 'topbar', label: 'Options positioning', icon: 'app-options', iconOnly: true, order: 870, run: (ctx) => (location.href = `/options?symbol=${encodeURIComponent(ctx.symbol.slice(ctx.symbol.lastIndexOf(':') + 1))}`) });
     registerWidgetAction({ id: 'app-insights', target: 'topbar', label: 'My insights', icon: 'app-insights', iconOnly: true, order: 880, run: () => (location.href = '/insights') });
     registerWidgetAction({ id: 'app-stats', target: 'topbar', label: 'Data providers', icon: 'app-stats', iconOnly: true, order: 890, run: () => (location.href = '/stats') });
     registerWidgetAction({ id: 'app-account', target: 'topbar', label: `Account (${me.username})`, icon: 'app-account', iconOnly: true, order: 900, run: () => (location.href = '/account') });
@@ -70,6 +75,7 @@ async function main(): Promise<void> {
         history.replaceState(null, '', '/');
     }
     startTracker(ws);
+    startDrawingInbox(ws, storage);
     void startDataNotices(ws, provider);
     (window as unknown as { vela?: unknown }).vela = ws;
 }

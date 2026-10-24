@@ -19,6 +19,8 @@ export default defineConfig({
                 stats: resolve(__dirname, 'web/stats.html'),
                 insights: resolve(__dirname, 'web/insights.html'),
                 cache: resolve(__dirname, 'web/cache.html'),
+                options: resolve(__dirname, 'web/options.html'),
+                trends: resolve(__dirname, 'web/trends.html'),
             },
         },
     },

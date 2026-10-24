@@ -41,6 +41,46 @@ export interface AlpacaAsset {
     class: string;
     status: string;
     tradable: boolean;
+    marginable?: boolean;
+    /** Percent of the position's value, as the broker sets them (decimal strings or numbers). */
+    maintenance_margin_requirement?: number | string;
+    margin_requirement_long?: number | string;
+    margin_requirement_short?: number | string;
+    shortable?: boolean;
+    easy_to_borrow?: boolean;
+    /** Flags such as `has_options`. */
+    attributes?: string[];
+}
+
+/** One listed option contract, with its open interest as of `open_interest_date`. */
+export interface RawOptionContract {
+    symbol: string;
+    type: 'call' | 'put';
+    expiration_date: string;
+    strike_price: string;
+    multiplier?: string;
+    open_interest?: string | null;
+    open_interest_date?: string | null;
+    close_price?: string | null;
+}
+
+/** An option snapshot on the indicative feed: derived quotes, delayed trades, model greeks. */
+export interface RawOptionSnapshot {
+    latestQuote?: { bp: number; ap: number; t: string };
+    latestTrade?: { p: number; t: string };
+    dailyBar?: RawBar;
+    greeks?: { delta: number; gamma: number; theta: number; vega: number; rho: number };
+    impliedVolatility?: number;
+}
+
+export interface OptionWindow {
+    /** Contracts expiring on or before this date (`YYYY-MM-DD`, New York). */
+    expiresBy: string;
+    /** Snapshots only: the strike range worth quoting. */
+    strikeMin?: number;
+    strikeMax?: number;
+    /** Snapshots only: expiring on or before this date (narrower than the contracts'). */
+    quotedBy?: string;
 }
 
 export interface CalendarDay {
@@ -56,6 +96,8 @@ const SIP_DELAY_MS = 15 * 60_000;
 /** Overlap between the SIP history and the IEX tail, so the partial SIP bucket is merged. */
 const TAIL_WINDOW_MS = 20 * 60_000;
 const MAX_PAGES = 12;
+/** A chain longer than this many pages is cut short (the largest index chains run ~15). */
+const MAX_OPTION_PAGES = 20;
 const DAY_MS = 86_400_000;
 /** Intraday history is fetched in fixed windows of about one page each (a page holds
  *  roughly ten thousand minutes of tape, whatever the bar size). */
@@ -336,6 +378,35 @@ export class AlpacaBridge implements Bridge {
             setTimeout(() => (this.assetsPromise = null), 24 * 3_600_000).unref?.();
         }
         return this.assetsPromise;
+    }
+
+    /** Every active contract on `underlying` expiring by `w.expiresBy`, open interest included. */
+    async optionContracts(underlying: string, w: OptionWindow): Promise<RawOptionContract[]> {
+        const out: RawOptionContract[] = [];
+        let token: string | null = null;
+        for (let page = 0; page < MAX_OPTION_PAGES; page++) {
+            const url = `${this.cfg.tradingUrl}/options/contracts?underlying_symbols=${encodeURIComponent(underlying)}&status=active&expiration_date_lte=${w.expiresBy}&limit=10000${token ? `&page_token=${encodeURIComponent(token)}` : ''}`;
+            const res: { option_contracts?: RawOptionContract[]; next_page_token?: string | null } = await this.get(url, 'option-contracts');
+            out.push(...(res.option_contracts ?? []));
+            token = res.next_page_token ?? null;
+            if (!token) break;
+        }
+        return out;
+    }
+
+    /** Snapshots (quotes, greeks, implied volatility) of `underlying`'s contracts inside the window, by contract symbol. */
+    async optionSnapshots(underlying: string, w: OptionWindow): Promise<Map<string, RawOptionSnapshot>> {
+        const out = new Map<string, RawOptionSnapshot>();
+        const range = `${w.strikeMin != null ? `&strike_price_gte=${w.strikeMin}` : ''}${w.strikeMax != null ? `&strike_price_lte=${w.strikeMax}` : ''}`;
+        let token: string | null = null;
+        for (let page = 0; page < MAX_OPTION_PAGES; page++) {
+            const url = `${this.cfg.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlying)}?feed=indicative&limit=1000&expiration_date_lte=${w.quotedBy ?? w.expiresBy}${range}${token ? `&page_token=${encodeURIComponent(token)}` : ''}`;
+            const res: { snapshots?: Record<string, RawOptionSnapshot>; next_page_token?: string | null } = await this.get(url, 'option-snapshots');
+            for (const [k, v] of Object.entries(res.snapshots ?? {})) out.set(k, v);
+            token = res.next_page_token ?? null;
+            if (!token) break;
+        }
+        return out;
     }
 
     budgetLeft(): number {
