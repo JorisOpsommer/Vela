@@ -564,6 +564,42 @@ describe('ChartCell drawings belong to the symbol they were drawn on', () => {
         cell.destroy();
     });
 
+    const listedFeed = (listSymbols: DataProvider['listSymbols']) => {
+        const feed = new MultiProviderFeed(new BarStore());
+        feed.registerProvider('alpaca', { getBars: () => Promise.resolve(makeBars(60)), listSymbols });
+        return feed;
+    };
+    const LISTED = [
+        { ticker: 'GME', prefix: 'NYSE' },
+        { ticker: 'AMC', prefix: 'NYSE' },
+    ];
+
+    it("drawings filed under the shown market's bare spelling come back on it, without id clashes", async () => {
+        const feed = listedFeed(() => Promise.resolve(LISTED));
+        const cell = makeCell({ symbol: 'NYSE:GME', drawings: doc(box('dw-1', 20)), drawingsBySymbol: { GME: doc(box('dw-1', 25), box('dw-2', 18)) } }, { feed });
+        await settle();
+        expect(prices(cell).sort((a, b) => a - b)).toEqual([18, 20, 25]);
+        expect(new Set(cell.chart.drawings.toJSON().drawings.map((d) => d.id)).size).toBe(3);
+        const saved = cell.dehydrate();
+        expect(saved.drawingsBySymbol).toEqual({});
+        expect((saved.drawings as { drawings: unknown[] }).drawings).toHaveLength(3);
+        cell.destroy();
+    });
+
+    it('a bare and a prefixed pick of the same market keep its drawings while the symbol list is still loading', async () => {
+        let release!: () => void;
+        const feed = listedFeed(() => new Promise((r) => (release = () => r(LISTED))));
+        const cell = makeCell({ symbol: 'NYSE:GME', drawings: doc(box('dw-1', 20)) }, { feed });
+        await settle();
+        cell.setSymbol('GME');
+        await settle();
+        release();
+        await settle();
+        expect(prices(cell)).toEqual([20]);
+        expect(cell.dehydrate().drawingsBySymbol).toEqual({});
+        cell.destroy();
+    });
+
     it('a market switch made on the chart itself swaps the drawings too', async () => {
         const cell = makeCell({ symbol: 'NASDAQ:AAPL', drawings: doc(box('dw-1', 250)) });
         await settle();

@@ -11,7 +11,7 @@ import { normalizeSession, type MarketSession, type NativeBackend, type VelaOpti
 import type { OHLCV } from '../core/model/ohlcv';
 import type { VisibleRangePreset } from '../core/visible-range';
 import type { VisibleRange } from '../core/ports/IChartRenderer';
-import { DRAWINGS_DOC_VERSION, type DrawingsOption } from '../core/drawings';
+import { DRAWINGS_DOC_VERSION, migrate, type DrawingsDocument, type DrawingsOption } from '../core/drawings';
 import type { MarketDataFeed } from '../core/ports/MarketDataFeed';
 import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
@@ -228,6 +228,22 @@ function instanceDeltas(handle: IndicatorHandle | null): { inputs?: Record<strin
     const inputs = inputDeltas(handle.inputs, handle.inputValues());
     const props = inputDeltas(handle.props, handle.propValues());
     return inputs || props ? { ...(inputs ? { inputs } : {}), ...(props ? { props } : {}) } : undefined;
+}
+
+/** `into` plus `from`'s drawings (both untrusted). An incoming id already taken is
+ *  renumbered past both documents: the store keys drawings by id, so a clash would drop one. */
+function mergeDrawingDocs(into: unknown, from: unknown): DrawingsDocument {
+    const a = migrate(into);
+    const b = migrate(from);
+    if (b.drawings.length === 0) return a;
+    const taken = new Set(a.drawings.map((d) => d.id));
+    let seq = Math.max(0, ...[...a.drawings, ...b.drawings].map((d) => Number(/^dw-(\d+)$/.exec(d.id)?.[1] ?? 0)));
+    const added = b.drawings.map((d) => {
+        const id = taken.has(d.id) ? `dw-${++seq}` : d.id;
+        taken.add(id);
+        return id === d.id ? d : { ...d, id };
+    });
+    return { version: DRAWINGS_DOC_VERSION, drawings: [...a.drawings, ...added] };
 }
 
 export class ChartCell {
@@ -483,6 +499,7 @@ export class ChartCell {
             this.statusline?.setSync(state === 'live' ? null : { state, asOf });
         });
         this.inner.on('load:end', () => {
+            this.healDrawingKeys(); // the market resolved, so its canonical key is known now
             this.watermark?.setLoading(false);
             this.refreshSessionShading(); // the first painted bars now define the exact range
         });
@@ -1621,8 +1638,28 @@ export class ChartCell {
     }
 
     private stashDrawings(docs: Record<string, unknown> | undefined): void {
+        for (const [key, d] of Object.entries(docs ?? {})) this.drawingDocs.set(key.toUpperCase(), mergeDrawingDocs(this.drawingDocs.get(key.toUpperCase()), d));
+        this.healDrawingKeys();
+    }
+
+    /** Re-file documents kept under a spelling that now resolves to another key, and fold
+     *  the shown market's into the live drawings. A key is only canonical once a provider
+     *  resolves it: before its symbol list loads, `GME` and `NYSE:GME` key apart. */
+    private healDrawingKeys(): void {
+        if (!this.inner) return;
         const shown = this.drawingsKey(this.drawingsSymbol);
-        for (const [key, d] of Object.entries(docs ?? {})) if (key.toUpperCase() !== shown) this.drawingDocs.set(key.toUpperCase(), d);
+        const fold: unknown[] = [];
+        for (const [key, d] of [...this.drawingDocs]) {
+            const canonical = this.drawingsKey(key);
+            if (canonical === key && canonical !== shown) continue;
+            this.drawingDocs.delete(key);
+            if (canonical === shown) fold.push(d);
+            else this.drawingDocs.set(canonical, mergeDrawingDocs(this.drawingDocs.get(canonical), d));
+        }
+        if (fold.length === 0) return;
+        const merged = fold.reduce<DrawingsDocument>((into, d) => mergeDrawingDocs(into, d), this.inner.drawings.toJSON());
+        this.history.silently(() => this.inner?.drawings.fromJSON(merged));
+        this.deps.onDrawingsSwapped?.(this.id);
     }
 
     /** Show `symbol`'s own drawings: the live ones are filed under the symbol they were
@@ -1631,6 +1668,7 @@ export class ChartCell {
      *  links, and host `chart.setMarket` calls (via `load:start` / `market:changed`). */
     private followDrawings(symbol: string): void {
         if (!this.inner) return;
+        this.healDrawingKeys();
         const from = this.drawingsKey(this.drawingsSymbol);
         const to = this.drawingsKey(symbol);
         this.drawingsSymbol = symbol;
